@@ -21,6 +21,14 @@ import {
 
 const API = "http://127.0.0.1:8080"
 
+const CONVERSATION_ID =
+  sessionStorage.getItem("darukaa_conversation_id") ||
+  (() => {
+    const id = `darukaa-${crypto.randomUUID()}`
+    sessionStorage.setItem("darukaa_conversation_id", id)
+    return id
+  })()
+
 const initialEnvironment = {
   soil_organic_carbon: 0.3,
   soil_moisture: 12,
@@ -178,7 +186,7 @@ function App() {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          conversation_id: "darukaa-demo",
+          conversation_id: CONVERSATION_ID,
           message: userMessage
         })
       })
@@ -207,16 +215,54 @@ function App() {
       }
 
       if (data.type === "analysis") {
-        setAnalysis(data.analysis)
+  setAnalysis(data.analysis)
 
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: data.message
-          }
-        ])
-      }
+  const result = data.analysis
+
+  const topRecommendation =
+    result?.recommendations?.[0]?.recommendation
+
+  const confidence = result?.recommendations?.length
+    ? Math.round(
+        result.recommendations.reduce(
+          (sum, r) => sum + r.confidence,
+          0
+        ) /
+          result.recommendations.length *
+          100
+      )
+    : null
+
+  const reasoningSummary =
+    result?.reasoning_chain?.length
+      ? result.reasoning_chain.join(" ")
+      : "The available environmental signals indicate interacting ecological stress."
+
+  const assistantResponse = [
+    "Assessment complete.",
+    "",
+    reasoningSummary,
+    "",
+    topRecommendation
+      ? `Priority intervention: ${topRecommendation}`
+      : "",
+    confidence
+      ? `Recommendation confidence: ${confidence}%.`
+      : "",
+    "",
+    "I have updated the assessment workspace with the environmental state, reasoning chain, recommendations and scientific evidence."
+  ]
+    .filter(Boolean)
+    .join("\n")
+
+  setMessages((prev) => [
+    ...prev,
+    {
+      role: "assistant",
+      content: assistantResponse
+    }
+  ])
+}
     } catch (error) {
       setMessages((prev) => [
         ...prev,
