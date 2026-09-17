@@ -1,16 +1,11 @@
 ﻿from __future__ import annotations
 
-import io
+import asyncio
 import math
 from typing import Any
 
-import httpx
 import rasterio
 
-
-WORLDCOVER_BASE = (
-    "https://esa-worldcover.s3.eu-central-1.amazonaws.com"
-)
 
 CLASS_NAMES = {
     10: "tree_cover",
@@ -27,10 +22,25 @@ CLASS_NAMES = {
 }
 
 
-class WorldCoverService:
-    """Point sampling from ESA WorldCover 2021 v200."""
+WORLDCOVER_BASE = (
+    "https://esa-worldcover.s3.eu-central-1.amazonaws.com"
+)
 
-    def __init__(self, timeout: float = 60.0):
+
+class WorldCoverService:
+    """
+    Point sampling from ESA WorldCover 2021 v200.
+
+    WorldCover files are Cloud Optimized GeoTIFFs. Instead of
+    downloading an entire 3° x 3° tile, GDAL/rasterio accesses
+    the remote COG and retrieves only the raster blocks needed
+    for the requested coordinate.
+    """
+
+    def __init__(
+        self,
+        timeout: float = 30.0,
+    ):
         self.timeout = timeout
 
     @staticmethod
@@ -38,9 +48,6 @@ class WorldCoverService:
         latitude: float,
         longitude: float,
     ) -> str:
-
-        # WorldCover tiles use the lower-left corner of each
-        # 3-degree tile.
         lat = math.floor(latitude / 3.0) * 3
         lon = math.floor(longitude / 3.0) * 3
 
@@ -58,7 +65,6 @@ class WorldCoverService:
         latitude: float,
         longitude: float,
     ) -> str:
-
         tile = cls._tile_name(
             latitude,
             longitude,
@@ -70,52 +76,45 @@ class WorldCoverService:
             f"{tile}_Map.tif"
         )
 
-    async def fetch_land_cover(
-        self,
-        latitude: float,
-        longitude: float,
+    @staticmethod
+    def _result(
+        *,
+        land_cover_class=None,
+        land_cover_label=None,
+        is_terrestrial=None,
+        status="available",
+        tile=None,
+        error=None,
     ) -> dict[str, Any]:
 
-        url = self._tile_url(
-            latitude,
-            longitude,
-        )
+        result = {
+            "land_cover_class": land_cover_class,
+            "land_cover_label": land_cover_label,
+            "is_terrestrial": is_terrestrial,
+            "land_cover_status": status,
+            "source": "ESA WorldCover 2021 v200",
+            "resolution_m": 10,
+            "tile": tile,
+        }
 
-        async with httpx.AsyncClient(
-            timeout=self.timeout,
-            follow_redirects=True,
-        ) as client:
+        if error:
+            result["error"] = error
 
-            response = await client.get(url)
+        return result
 
-        if response.status_code != 200:
-            raise RuntimeError(
-                f"WorldCover HTTP {response.status_code}: "
-                f"{url}"
-            )
+    @staticmethod
+    def _sample_remote(
+        url: str,
+        latitude: float,
+        longitude: float,
+        tile: str,
+    ) -> dict[str, Any]:
 
-        content_type = response.headers.get(
-            "content-type",
-            "",
-        )
+        try:
+            with rasterio.open(
+                "/vsicurl/" + url
+            ) as dataset:
 
-        if (
-            "tif" not in content_type.lower()
-            and "octet-stream" not in content_type.lower()
-        ):
-            raise RuntimeError(
-                "WorldCover did not return a GeoTIFF. "
-                f"Content-Type={content_type}"
-            )
-
-        with rasterio.MemoryFile(
-            io.BytesIO(response.content)
-        ) as memfile:
-
-            with memfile.open() as dataset:
-
-                # WorldCover is EPSG:4326, so transform the
-                # coordinate directly into the raster.
                 row, col = dataset.index(
                     longitude,
                     latitude,
@@ -127,16 +126,10 @@ class WorldCoverService:
                     or col < 0
                     or col >= dataset.width
                 ):
-                    return {
-                        "land_cover_class": None,
-                        "land_cover_label": None,
-                        "source": "ESA WorldCover 2021 v200",
-                        "resolution_m": 10,
-                        "tile": self._tile_name(
-                            latitude,
-                            longitude,
-                        ),
-                    }
+                    return WorldCoverService._result(
+                        status="outside_tile",
+                        tile=tile,
+                    )
 
                 value = int(
                     dataset.read(
@@ -150,30 +143,66 @@ class WorldCoverService:
                     )[0, 0]
                 )
 
-        # WorldCover uses 0 as nodata.
-        label = CLASS_NAMES.get(
-            value
+        except Exception as exc:
+            message = str(exc)
+
+            if "404" in message or "not exist" in message.lower():
+                return WorldCoverService._result(
+                    status="tile_not_available",
+                    tile=tile,
+                )
+
+            return WorldCoverService._result(
+                status="error",
+                tile=tile,
+                error=f"{type(exc).__name__}: {message}",
+            )
+
+        if value == 0:
+            return WorldCoverService._result(
+                status="pixel_nodata",
+                tile=tile,
+            )
+
+        label = CLASS_NAMES.get(value)
+
+        is_terrestrial = value not in {
+            70,
+            80,
+        }
+
+        return WorldCoverService._result(
+            land_cover_class=value,
+            land_cover_label=label,
+            is_terrestrial=is_terrestrial,
+            status="available",
+            tile=tile,
         )
 
-        return {
-            "land_cover_class": value
-            if value != 0
-            else None,
+    async def fetch_land_cover(
+        self,
+        latitude: float,
+        longitude: float,
+    ) -> dict[str, Any]:
 
-            "land_cover_label": label,
+        tile = self._tile_name(
+            latitude,
+            longitude,
+        )
 
-            "is_terrestrial": (
-                value not in {
-                    0,
-                    70,
-                    80,
-                }
-            ),
+        url = self._tile_url(
+            latitude,
+            longitude,
+        )
 
-            "source": "ESA WorldCover 2021 v200",
-            "resolution_m": 10,
-            "tile": self._tile_name(
-                latitude,
-                longitude,
-            ),
-        }
+        # Rasterio/GDAL performs blocking I/O, so move the
+        # remote COG read to a worker thread.
+        result = await asyncio.to_thread(
+            self._sample_remote,
+            url,
+            latitude,
+            longitude,
+            tile,
+        )
+
+        return result
