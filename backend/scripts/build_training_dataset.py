@@ -5,101 +5,174 @@ import csv
 from pathlib import Path
 
 from app.services.environment_data import EnvironmentalDataService
+from app.services.soil_data import SoilGridsService
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
 INPUT = ROOT / "data" / "training_locations.csv"
 OUTPUT = ROOT / "data" / "environment_training.csv"
 
 
 async def main():
-    service = EnvironmentalDataService()
-    rows = []
 
-    with INPUT.open(newline="", encoding="utf-8-sig") as f:
+    climate_service = EnvironmentalDataService()
+    soil_service = SoilGridsService()
+
+    with INPUT.open(
+        newline="",
+        encoding="utf-8-sig",
+    ) as f:
         locations = list(csv.DictReader(f))
 
     if not locations:
-        raise RuntimeError("No training locations found.")
-
-    required_columns = {"latitude", "longitude"}
-    actual_columns = set(locations[0].keys())
-
-    missing = required_columns - actual_columns
-    if missing:
         raise RuntimeError(
-            f"Training locations missing columns: {sorted(missing)}"
+            "No training locations found."
         )
 
-    for i, item in enumerate(locations, start=1):
-        lat = float(item["latitude"])
-        lon = float(item["longitude"])
+    rows = []
+
+    total = len(locations)
+
+    for i, item in enumerate(
+        locations,
+        start=1,
+    ):
+
+        latitude = float(
+            item["latitude"]
+        )
+
+        longitude = float(
+            item["longitude"]
+        )
 
         print(
-            f"[{i}/{len(locations)}] "
-            f"{lat}, {lon}",
+            f"[{i}/{total}] "
+            f"{latitude}, {longitude}",
             flush=True,
         )
 
         try:
-            data = await service.enrich_location(
-                lat,
-                lon,
-                radius_km=10,
+
+            climate, biodiversity, soil = (
+                await asyncio.gather(
+                    climate_service.fetch_climate(
+                        latitude,
+                        longitude,
+                    ),
+                    climate_service.fetch_biodiversity(
+                        latitude,
+                        longitude,
+                        radius_km=10,
+                    ),
+                    soil_service.fetch_soil(
+                        latitude,
+                        longitude,
+                    ),
+                )
             )
 
-            climate = data["climate"]
-            biodiversity = data["biodiversity"]
+            rows.append(
+                {
+                    "latitude": latitude,
+                    "longitude": longitude,
 
-            rows.append({
-                "latitude": lat,
-                "longitude": lon,
+                    # Climate
+                    "temperature_c":
+                        climate.get(
+                            "temperature_c"
+                        ),
 
-                # Climate features
-                "temperature_c": climate.get("temperature_c"),
-                "temperature_max_c": climate.get(
-                    "temperature_max_c"
-                ),
-                "temperature_min_c": climate.get(
-                    "temperature_min_c"
-                ),
-                "temperature_range_c": climate.get(
-                    "temperature_range_c"
-                ),
-                "precipitation_mm_day": climate.get(
-                    "precipitation_mm_day"
-                ),
+                    "temperature_max_c":
+                        climate.get(
+                            "temperature_max_c"
+                        ),
 
-                # Biodiversity observation features
-                "gbif_occurrence_records": biodiversity.get(
-                    "occurrence_records"
-                ),
-                "gbif_sampled_records": biodiversity.get(
-                    "sampled_records"
-                ),
-                "observed_species_count_sample": biodiversity.get(
-                    "observed_species_count_sample"
-                ),
-                "observed_genera_count_sample": biodiversity.get(
-                    "observed_genera_count_sample"
-                ),
-                "observed_families_count_sample": biodiversity.get(
-                    "observed_families_count_sample"
-                ),
-                "observed_orders_count_sample": biodiversity.get(
-                    "observed_orders_count_sample"
-                ),
-                "observed_kingdom_count_sample": biodiversity.get(
-                    "observed_kingdom_count_sample"
-                ),
-                "species_per_1000_records": biodiversity.get(
-                    "species_per_1000_records"
-                ),
-            })
+                    "temperature_min_c":
+                        climate.get(
+                            "temperature_min_c"
+                        ),
+
+                    "temperature_range_c":
+                        climate.get(
+                            "temperature_range_c"
+                        ),
+
+                    "precipitation_mm_day":
+                        climate.get(
+                            "precipitation_mm_day"
+                        ),
+
+                    # Soil
+                    "soil_organic_carbon_g_per_kg":
+                        soil.get(
+                            "soil_organic_carbon_g_per_kg"
+                        ),
+
+                    "soil_ph":
+                        soil.get(
+                            "soil_ph"
+                        ),
+
+                    "soil_source_distance_m":
+                        soil.get(
+                            "soc_source_distance_m"
+                        ),
+
+                    "soil_ph_source_distance_m":
+                        soil.get(
+                            "ph_source_distance_m"
+                        ),
+
+                    # Biodiversity observation proxy
+                    "gbif_occurrence_records":
+                        biodiversity.get(
+                            "occurrence_records"
+                        ),
+
+                    "gbif_sampled_records":
+                        biodiversity.get(
+                            "sampled_records"
+                        ),
+
+                    "observed_species_count_sample":
+                        biodiversity.get(
+                            "observed_species_count_sample"
+                        ),
+
+                    "observed_genera_count_sample":
+                        biodiversity.get(
+                            "observed_genera_count_sample"
+                        ),
+
+                    "observed_families_count_sample":
+                        biodiversity.get(
+                            "observed_families_count_sample"
+                        ),
+
+                    "observed_orders_count_sample":
+                        biodiversity.get(
+                            "observed_orders_count_sample"
+                        ),
+
+                    "observed_kingdom_count_sample":
+                        biodiversity.get(
+                            "observed_kingdom_count_sample"
+                        ),
+
+                    "species_per_1000_records":
+                        biodiversity.get(
+                            "species_per_1000_records"
+                        ),
+                }
+            )
 
         except Exception as exc:
+
             print(
-                f"  skipped: {type(exc).__name__}: {exc}",
+                f"  skipped: "
+                f"{type(exc).__name__}: {exc}",
                 flush=True,
             )
 
@@ -108,24 +181,29 @@ async def main():
             "No training rows were collected."
         )
 
-    fieldnames = list(rows[0].keys())
+    fieldnames = list(
+        rows[0].keys()
+    )
 
     with OUTPUT.open(
         "w",
         newline="",
         encoding="utf-8",
     ) as f:
+
         writer = csv.DictWriter(
             f,
             fieldnames=fieldnames,
         )
+
         writer.writeheader()
         writer.writerows(rows)
 
     print()
     print(
-        f"Wrote {len(rows)} rows to {OUTPUT}"
+        f"Wrote {len(rows)} rows to:"
     )
+    print(OUTPUT)
 
 
 if __name__ == "__main__":
