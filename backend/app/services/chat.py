@@ -148,3 +148,77 @@ class ChatParser:
                 break
 
         return EnvironmentalInput(**d)
+
+class ChatIntent:
+
+    @staticmethod
+    def detect(text: str) -> str:
+        t = text.lower().strip()
+
+        if any(
+            phrase in t
+            for phrase in [
+                "what is the result",
+                "what's the result",
+                "what is the assessment",
+                "what's the assessment",
+                "summarize the result",
+                "give me the result",
+                "overall result",
+                "overall assessment"
+            ]
+        ):
+            return "result"
+
+        if any(
+            phrase in t
+            for phrase in [
+                "why",
+                "why does this work",
+                "why is this happening",
+                "explain why",
+                "how does this work"
+            ]
+        ):
+            return "why"
+
+        if any(
+            phrase in t
+            for phrase in [
+                "what metrics",
+                "which metrics",
+                "what will improve",
+                "what improves",
+                "environmental metrics"
+            ]
+        ):
+            return "metrics"
+
+        if any(
+            phrase in t
+            for phrase in [
+                "what evidence",
+                "which evidence",
+                "what studies",
+                "what research",
+                "what sources",
+                "show me the evidence"
+            ]
+        ):
+            return "evidence"
+
+        if any(
+            phrase in t
+            for phrase in [
+                "recommendation",
+                "recommendations",
+                "what should i do",
+                "what should we do",
+                "what action",
+                "next step",
+                "intervention"
+            ]
+        ):
+            return "recommendation"
+
+        return "assessment"
