@@ -182,22 +182,122 @@ def analyze(env: EnvironmentalInput):
 
 @app.post('/chat')
 def chat(req: ChatRequest):
-    parsed=parser.parse(req.message)
-    s=memory.update(req.conversation_id,req.environment)
-    memory.update(req.conversation_id,parsed)
-    s=memory.get(req.conversation_id)
-    env=EnvironmentalInput(**s['environment'])
-    missing=[k for k in ['soil_organic_carbon','rainfall_mm','land_use','region'] if getattr(env,k) is None]
-    memory.add_message(req.conversation_id,'user',req.message)
-    if missing:
-        labels={'soil_organic_carbon':'soil organic carbon (%)','rainfall_mm':'average annual rainfall (mm)','land_use':'land-use type','region':'region/climate zone'}
-        reply='I can assess the biodiversity constraint, but I need: ' + ', '.join(labels[k] for k in missing) + '.'
-        memory.add_message(req.conversation_id,'assistant',reply)
-        return {'conversation_id':req.conversation_id,'type':'clarification','message':reply,'environment':s['environment']}
-    result=analyze(env)
-    memory.add_message(req.conversation_id,'assistant',result.model_dump_json())
-    return {'conversation_id':req.conversation_id,'type':'analysis','message':'I combined the available soil, climate and land-use variables and grounded the recommendations in the retrieved knowledge base.','analysis':result}
+    # Parse environmental information from natural language
+    parsed = parser.parse(req.message)
 
+    # Start with explicitly supplied structured environmental data
+    if req.environmental:
+        memory.update(
+            req.conversation_id,
+            req.environmental.model_dump(exclude_none=True)
+        )
+
+    # Merge values extracted from the user's message
+    if parsed:
+        memory.update(
+            req.conversation_id,
+            parsed
+        )
+
+    # Retrieve the accumulated environmental context
+    state = memory.get(req.conversation_id)
+
+    environment_data = state.get(
+        "environment",
+        {}
+    )
+
+    env = EnvironmentalInput(
+        **environment_data
+    )
+
+    # Variables required before we can make a meaningful
+    # environmental assessment
+    required = [
+        "soil_organic_carbon",
+        "rainfall_mm",
+        "land_use",
+        "region"
+    ]
+
+    missing = [
+        field
+        for field in required
+        if getattr(env, field) is None
+    ]
+
+    # Store the user message
+    memory.add_message(
+        req.conversation_id,
+        "user",
+        req.message
+    )
+
+    # Ask targeted clarification questions when information
+    # is incomplete.
+    if missing:
+
+        labels = {
+            "soil_organic_carbon":
+                "soil organic carbon (%)",
+
+            "rainfall_mm":
+                "average annual rainfall (mm)",
+
+            "land_use":
+                "land-use type",
+
+            "region":
+                "region or climate zone"
+        }
+
+        requested = [
+            labels[field]
+            for field in missing
+        ]
+
+        reply = (
+            "I can assess the biodiversity conditions, "
+            "but I need a little more information: "
+            + ", ".join(requested)
+            + "."
+        )
+
+        memory.add_message(
+            req.conversation_id,
+            "assistant",
+            reply
+        )
+
+        return {
+            "conversation_id": req.conversation_id,
+            "type": "clarification",
+            "message": reply,
+            "environment": environment_data,
+            "missing_variables": missing
+        }
+
+    # We have sufficient information for analysis
+    result = analyze(env)
+
+    memory.add_message(
+        req.conversation_id,
+        "assistant",
+        result.model_dump_json()
+    )
+
+    return {
+        "conversation_id": req.conversation_id,
+        "type": "analysis",
+        "message": (
+            "I combined the available soil, climate, "
+            "water and land-use variables and grounded "
+            "the recommendations in the environmental "
+            "knowledge base."
+        ),
+        "environment": environment_data,
+        "analysis": result
+    }
 
 
 @app.get("/knowledge/{knowledge_id}")
