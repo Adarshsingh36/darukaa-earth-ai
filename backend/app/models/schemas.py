@@ -72,6 +72,7 @@ class Recommendation(BaseModel):
     why_it_works: str
     impacted_metrics: list[str]
     time_horizon: str
+    expected_change: str | None = None
     confidence: float
     evidence: list[dict[str, Any]]
 
