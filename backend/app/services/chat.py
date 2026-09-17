@@ -45,7 +45,11 @@ memory = ConversationMemory()
 
 class ChatParser:
 
-    def parse(self, text):
+    def parse(self, text: str) -> EnvironmentalInput:
+        """Extract supported environmental values from a natural-language message."""
+        if not isinstance(text, str):
+            raise TypeError("text must be a string")
+
         t = text.lower()
         d = {}
 
@@ -111,31 +115,17 @@ class ChatParser:
 
         # Land-use patterns
         land_use_patterns = [
-            r"([\w\s-]+monoculture)",
-            r"([\w\s-]+cropland)",
-            r"([\w\s-]+plantation)",
-            r"([\w\s-]+pasture)",
-            r"([\w\s-]+agroforestry)",
-            r"([\w\s-]+forest)",
+            r"(?:land\s+is|the\s+land\s+is|it\s+is|this\s+is)\s+"
+            r"([a-z][a-z\s-]{1,40}?(?:monoculture|cropland|plantation|pasture|agroforestry|forest))",
+            r"\b([a-z][a-z\s-]{1,40}?(?:monoculture|cropland|plantation|pasture|agroforestry|forest))\b",
         ]
 
         for pattern in land_use_patterns:
             m = re.search(pattern, t)
-
             if m:
-                value = m.group(1).strip()
-
-                # Remove common leading phrases
-                value = re.sub(
-                    r"^(?:it is|the land is|land is|this is)\s+",
-                    "",
-                    value
-                )
-
-                d["land_use"] = value
+                d["land_use"] = m.group(1).strip()
                 break
 
-        # Specific common land-use terms
         if "monoculture" in t and "land_use" not in d:
             d["land_use"] = "monoculture"
 
