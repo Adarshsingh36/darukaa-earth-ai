@@ -19,41 +19,78 @@ def search(payload: dict):
 
 @app.post('/analyze', response_model=AnalysisResponse)
 def analyze(env: EnvironmentalInput):
-    x, chain, candidates = reasoning.analyze(env)
 
-    # Build a retrieval query from the detected environmental variables
-    query = ' '.join(
-        [f'{k}: {v}' for k, v in x.items()]
-    )
+    result = reasoning.analyze(env)
 
-    # Retrieve scientific evidence from ChromaDB
+    x = result["detected_variables"]
+    chain = result["reasoning_chain"]
+    candidates = result["recommendations"]
+
+    # Build a retrieval query from both the observed variables
+    # and the derived environmental condition.
+    derived = result["derived_features"]
+
+    query_parts = [
+        f"{key}: {value}"
+        for key, value in x.items()
+    ]
+
+    query_parts.extend([
+        f"water stress: {derived['water_stress']}",
+        f"thermal stress: {derived['thermal_stress']}",
+        f"soil carbon condition: "
+        f"{derived['soil_carbon_condition']}",
+        f"soil pH condition: "
+        f"{derived['soil_ph_condition']}",
+        f"land cover pressure: "
+        f"{derived['land_cover_pressure']}",
+        f"habitat condition: "
+        f"{derived['habitat_condition']}",
+    ])
+
+    query = " ".join(query_parts)
+
+    # Retrieve scientific evidence from ChromaDB.
     evidence = knowledge.search(
-        query or 'biodiversity environmental management',
+        query or "biodiversity environmental management",
         5
     )
 
-    # Keep the original retrieved text internally so we can
-    # match recommendations against the actual knowledge content.
     ev = [
-    {
-        'id': r['id'],
-        'source': r['metadata'].get('source'),
-        'title': r['metadata'].get('title'),
-        'distance': r['distance'],
-        'text': r.get('text', ''),
-        'metadata': r.get('metadata', {})
-    }
-    for r in evidence
-]
+        {
+            "id": r["id"],
+            "source": r["metadata"].get("source"),
+            "title": r["metadata"].get("title"),
+            "distance": r["distance"],
+            "text": r.get("text", ""),
+            "metadata": r.get("metadata", {})
+        }
+        for r in evidence
+    ]
 
     recs = []
 
-    for action, why, metrics, horizon in candidates:
+    for candidate in candidates:
 
-        # Match retrieved evidence to the metrics affected
-        def evidence_score(record, action, metrics):
-            text = record.get("text", "").lower()
-            metadata = record.get("metadata", {})
+        action = candidate["recommendation"]
+        why = candidate["why_it_works"]
+        metrics = candidate["impacted_metrics"]
+        horizon = candidate["time_horizon"]
+        expected_change = candidate.get(
+            "expected_change"
+        )
+
+        def evidence_score(record):
+
+            text = record.get(
+                "text",
+                ""
+            ).lower()
+
+            metadata = record.get(
+                "metadata",
+                {}
+            )
 
             score = 0
 
@@ -62,7 +99,7 @@ def analyze(env: EnvironmentalInput):
                 if metric.lower() in text:
                     score += 3
 
-            # Recommendation/intervention relevance
+            # Recommendation relevance
             action_terms = [
                 term.lower()
                 for term in action.split()
@@ -73,13 +110,18 @@ def analyze(env: EnvironmentalInput):
                 if term in text:
                     score += 1
 
-            # Metadata relevance
             intervention = str(
-                metadata.get("intervention", "")
+                metadata.get(
+                    "intervention",
+                    ""
+                )
             ).lower()
 
             topic = str(
-                metadata.get("topic", "")
+                metadata.get(
+                    "topic",
+                    ""
+                )
             ).lower()
 
             if intervention and any(
@@ -98,19 +140,15 @@ def analyze(env: EnvironmentalInput):
 
         scored = [
             (
-                r,
-                evidence_score(
-                    r,
-                    action,
-                    metrics
-                )
+                record,
+                evidence_score(record)
             )
-            for r in ev
+            for record in ev
         ]
 
         matched = [
-            r
-            for r, score in sorted(
+            record
+            for record, score in sorted(
                 scored,
                 key=lambda item: item[1],
                 reverse=True
@@ -119,18 +157,21 @@ def analyze(env: EnvironmentalInput):
         ]
 
         best_score = (
-            evidence_score(matched[0], action, metrics)
+            evidence_score(matched[0])
             if matched
             else 0
-            )
+        )
 
         confidence = round(
-    min(
-        0.95,
-        0.55 + (best_score * 0.05)
-    ),
-    2
-)
+            min(
+                0.95,
+                candidate.get(
+                    "confidence",
+                    0.55
+                ) + (best_score * 0.03)
+            ),
+            2
+        )
 
         recs.append(
             Recommendation(
@@ -138,37 +179,37 @@ def analyze(env: EnvironmentalInput):
                 why_it_works=why,
                 impacted_metrics=metrics,
                 time_horizon=horizon,
+                expected_change=expected_change,
                 confidence=confidence,
                 evidence=[
                     {
-                        'id': r['id'],
-                        'source': r['source'],
-                        'title': r['title']
+                        "id": r["id"],
+                        "source": r["source"],
+                        "title": r["title"]
                     }
                     for r in matched[:3]
                 ]
             )
         )
 
-        
     required = [
-        'soil_organic_carbon',
-        'rainfall_mm',
-        'land_use'
+        "soil_organic_carbon_g_per_kg",
+        "precipitation_mm_day",
+        "land_use"
     ]
 
     missing = [
-        k for k in required
-        if getattr(env, k) is None
+        field
+        for field in required
+        if getattr(env, field) is None
     ]
 
-    # Do not expose the raw retrieved text in the final API response.
     retrieved_evidence = [
         {
-            'id': r['id'],
-            'source': r['source'],
-            'title': r['title'],
-            'distance': r['distance']
+            "id": r["id"],
+            "source": r["source"],
+            "title": r["title"],
+            "distance": r["distance"]
         }
         for r in ev
     ]
@@ -180,7 +221,6 @@ def analyze(env: EnvironmentalInput):
         recommendations=recs,
         retrieved_evidence=retrieved_evidence
     )
-
 @app.post('/chat')
 def chat(req: ChatRequest):
     # Parse environmental information from natural language
@@ -215,8 +255,8 @@ def chat(req: ChatRequest):
     # Variables required before we can make a meaningful
     # environmental assessment
     required = [
-        "soil_organic_carbon",
-        "rainfall_mm",
+        "soil_organic_carbon_g_per_kg",
+        "precipitation_mm_day",
         "land_use",
         "region"
     ]
@@ -239,11 +279,11 @@ def chat(req: ChatRequest):
     if missing:
 
         labels = {
-            "soil_organic_carbon":
-                "soil organic carbon (%)",
+            "soil_organic_carbon_g_per_kg":
+                "soil organic carbon (g/kg)",
 
-            "rainfall_mm":
-                "average annual rainfall (mm)",
+            "precipitation_mm_day":
+                "average precipitation (mm/day)",
 
             "land_use":
                 "land-use type",
