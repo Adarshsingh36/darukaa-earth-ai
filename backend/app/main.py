@@ -1,3 +1,4 @@
+﻿from app.api.environment import router as environment_router
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from app.models.schemas import EnvironmentalInput, ChatRequest, AnalysisResponse, Recommendation
@@ -311,3 +312,6 @@ def get_knowledge(knowledge_id: str):
         )
 
     return item
+
+app.include_router(environment_router)
+
