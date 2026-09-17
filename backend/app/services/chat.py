@@ -1,4 +1,5 @@
 import re
+
 from app.models.schemas import EnvironmentalInput
 
 
@@ -23,7 +24,8 @@ class ConversationMemory:
                 values = env.model_dump(exclude_none=True)
             else:
                 values = {
-                    k: v for k, v in env.items()
+                    k: v
+                    for k, v in env.items()
                     if v is not None
                 }
 
@@ -32,12 +34,10 @@ class ConversationMemory:
         return s
 
     def add_message(self, cid, role, text):
-        self.get(cid)["messages"].append(
-            {
-                "role": role,
-                "content": text
-            }
-        )
+        self.get(cid)["messages"].append({
+            "role": role,
+            "content": text
+        })
 
 
 memory = ConversationMemory()
@@ -45,83 +45,153 @@ memory = ConversationMemory()
 
 class ChatParser:
 
-    def parse(self, text: str) -> EnvironmentalInput:
-        """Extract supported environmental values from a natural-language message."""
-        if not isinstance(text, str):
-            raise TypeError("text must be a string")
-
+    def parse(self, text):
         t = text.lower()
         d = {}
 
-        # Soil organic carbon
+        # -------------------------------------------------
+        # SOIL ORGANIC CARBON
+        # -------------------------------------------------
+        # Accepted examples:
+        #   SOC 5.8 g/kg
+        #   soil organic carbon is 5.8 g/kg
+        #   SOC is 0.58%
+        #   organic carbon = 0.58%
+        #
+        # Canonical internal unit:
+        #   g/kg
+        # -------------------------------------------------
+
         m = re.search(
             r"(?:soc|soil\s+organic\s+carbon|organic\s+carbon)"
-            r"\s*(?:is|=|:)?\s*(\d+(?:\.\d+)?)\s*%?",
+            r"\s*(?:is|=|:)?\s*"
+            r"(\d+(?:\.\d+)?)"
+            r"\s*(%|g\s*/?\s*kg|gkg)?",
             t
         )
 
         if m:
-            d["soil_organic_carbon"] = float(m.group(1))
+            value = float(m.group(1))
+            unit = (m.group(2) or "").replace(" ", "")
 
-        # Rainfall
+            if "%" in unit:
+                # 1% SOC ≈ 10 g/kg
+                value = value * 10.0
+
+            d["soil_organic_carbon_g_per_kg"] = value
+
+        # -------------------------------------------------
+        # RAINFALL
+        # -------------------------------------------------
+        # Canonical internal unit:
+        #   mm/day
+        #
+        # Accepted:
+        #   rainfall 1.2 mm/day
+        #   precipitation 1.2 mm/day
+        #   annual rainfall 600 mm
+        #
+        # Annual rainfall is converted to mean daily rainfall.
+        # -------------------------------------------------
+
         m = re.search(
-            r"(?:rainfall|annual\s+rainfall|rain)"
-            r"\s*(?:is|=|:)?\s*(\d+(?:\.\d+)?)\s*(?:mm)?",
+            r"(?:annual\s+rainfall|annual\s+precipitation|"
+            r"rainfall|precipitation|rain)"
+            r"\s*(?:is|=|:)?\s*"
+            r"(\d+(?:\.\d+)?)"
+            r"\s*(mm\s*/?\s*day|mm/day|mm)?",
             t
         )
 
         if m:
-            d["rainfall_mm"] = float(m.group(1))
+            value = float(m.group(1))
+            unit = (m.group(2) or "").replace(" ", "")
 
-        # Soil pH
+            if "day" in unit:
+                # Already mm/day
+                precipitation = value
+            else:
+                # Treat plain mm rainfall as annual rainfall.
+                precipitation = value / 365.0
+
+            d["precipitation_mm_day"] = precipitation
+
+        # -------------------------------------------------
+        # SOIL pH
+        # -------------------------------------------------
+
         m = re.search(
             r"(?:soil\s+)?ph"
-            r"\s*(?:is|=|:)?\s*(\d+(?:\.\d+)?)",
+            r"\s*(?:is|=|:)?\s*"
+            r"(\d+(?:\.\d+)?)",
             t
         )
 
         if m:
             d["soil_ph"] = float(m.group(1))
 
-        # Soil moisture
+        # -------------------------------------------------
+        # SOIL MOISTURE
+        # -------------------------------------------------
+
         m = re.search(
             r"(?:soil\s+)?moisture"
-            r"\s*(?:is|=|:)?\s*(\d+(?:\.\d+)?)\s*%?",
+            r"\s*(?:is|=|:)?\s*"
+            r"(\d+(?:\.\d+)?)"
+            r"\s*%?",
             t
         )
 
         if m:
             d["soil_moisture"] = float(m.group(1))
 
-        # Temperature
+        # -------------------------------------------------
+        # TEMPERATURE
+        # -------------------------------------------------
+
         m = re.search(
             r"(?:temperature|temp)"
-            r"\s*(?:is|=|:)?\s*(-?\d+(?:\.\d+)?)\s*(?:°?c)?",
+            r"\s*(?:is|=|:)?\s*"
+            r"(-?\d+(?:\.\d+)?)"
+            r"\s*(?:°?c)?",
             t
         )
 
         if m:
             d["temperature_c"] = float(m.group(1))
 
-        # Species richness
+        # -------------------------------------------------
+        # SPECIES RICHNESS
+        # -------------------------------------------------
+
         m = re.search(
             r"(?:species\s+richness|richness)"
-            r"\s*(?:is|=|:)?\s*(\d+)",
+            r"\s*(?:is|=|:)?\s*"
+            r"(\d+)",
             t
         )
 
         if m:
             d["species_richness"] = int(m.group(1))
 
-        # Land-use patterns
+        # -------------------------------------------------
+        # LAND USE / LAND COVER
+        # -------------------------------------------------
+
         land_use_patterns = [
             r"(?:land\s+is|the\s+land\s+is|it\s+is|this\s+is)\s+"
-            r"([a-z][a-z\s-]{1,40}?(?:monoculture|cropland|plantation|pasture|agroforestry|forest))",
-            r"\b([a-z][a-z\s-]{1,40}?(?:monoculture|cropland|plantation|pasture|agroforestry|forest))\b",
+            r"([a-z][a-z\s-]{1,40}?"
+            r"(?:monoculture|cropland|plantation|pasture|"
+            r"agroforestry|forest|grassland|shrubland))",
+
+            r"\b([a-z][a-z\s-]{1,40}?"
+            r"(?:monoculture|cropland|plantation|pasture|"
+            r"agroforestry|forest|grassland|shrubland))\b",
         ]
 
         for pattern in land_use_patterns:
             m = re.search(pattern, t)
+
             if m:
                 d["land_use"] = m.group(1).strip()
                 break
@@ -129,12 +199,17 @@ class ChatParser:
         if "monoculture" in t and "land_use" not in d:
             d["land_use"] = "monoculture"
 
-        # Region / climate
+        # -------------------------------------------------
+        # REGION / CLIMATE ZONE
+        # -------------------------------------------------
+
         region_patterns = [
             "semi-arid",
+            "semi arid",
             "arid",
             "humid",
             "semi-humid",
+            "semi humid",
             "tropical",
             "subtropical",
             "temperate",
@@ -143,82 +218,13 @@ class ChatParser:
         ]
 
         for region in region_patterns:
+
             if region in t:
-                d["region"] = region
+                d["region"] = region.replace(" ", "-")
                 break
 
+        # -------------------------------------------------
+        # FINAL VALIDATION
+        # -------------------------------------------------
+
         return EnvironmentalInput(**d)
-
-class ChatIntent:
-
-    @staticmethod
-    def detect(text: str) -> str:
-        t = text.lower().strip()
-
-        if any(
-            phrase in t
-            for phrase in [
-                "what is the result",
-                "what's the result",
-                "what is the assessment",
-                "what's the assessment",
-                "summarize the result",
-                "give me the result",
-                "overall result",
-                "overall assessment"
-            ]
-        ):
-            return "result"
-
-        if any(
-            phrase in t
-            for phrase in [
-                "why",
-                "why does this work",
-                "why is this happening",
-                "explain why",
-                "how does this work"
-            ]
-        ):
-            return "why"
-
-        if any(
-            phrase in t
-            for phrase in [
-                "what metrics",
-                "which metrics",
-                "what will improve",
-                "what improves",
-                "environmental metrics"
-            ]
-        ):
-            return "metrics"
-
-        if any(
-            phrase in t
-            for phrase in [
-                "what evidence",
-                "which evidence",
-                "what studies",
-                "what research",
-                "what sources",
-                "show me the evidence"
-            ]
-        ):
-            return "evidence"
-
-        if any(
-            phrase in t
-            for phrase in [
-                "recommendation",
-                "recommendations",
-                "what should i do",
-                "what should we do",
-                "what action",
-                "next step",
-                "intervention"
-            ]
-        ):
-            return "recommendation"
-
-        return "assessment"
