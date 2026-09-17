@@ -41,3 +41,6 @@ node_modules/
 htmlcov/
 # ChromaDB generated storage
 **/chroma_db/
+
+# Generated data cache
+backend/data/cache/
