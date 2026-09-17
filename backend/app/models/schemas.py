@@ -1,5 +1,4 @@
-from typing import Any, Literal
-from pydantic import BaseModel, Field
+from typing import Any
 
 from pydantic import BaseModel, Field, ConfigDict
 
@@ -13,7 +12,8 @@ class EnvironmentalInput(BaseModel):
         le=14
     )
 
-    soil_organic_carbon: float | None = Field(
+    # Canonical internal unit: g/kg
+    soil_organic_carbon_g_per_kg: float | None = Field(
         default=None,
         ge=0
     )
@@ -24,7 +24,8 @@ class EnvironmentalInput(BaseModel):
         le=100
     )
 
-    rainfall_mm: float | None = Field(
+    # Canonical internal unit: mm/day
+    precipitation_mm_day: float | None = Field(
         default=None,
         ge=0
     )
@@ -61,11 +62,12 @@ class EnvironmentalInput(BaseModel):
 
     region: str | None = None
 
-    
+
 class ChatRequest(BaseModel):
-    conversation_id: str = 'default'
+    conversation_id: str = "default"
     message: str
     environmental: EnvironmentalInput | None = None
+
 
 class Recommendation(BaseModel):
     recommendation: str
@@ -75,6 +77,7 @@ class Recommendation(BaseModel):
     expected_change: str | None = None
     confidence: float
     evidence: list[dict[str, Any]]
+
 
 class AnalysisResponse(BaseModel):
     detected_variables: dict[str, Any]
