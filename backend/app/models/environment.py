@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from typing import Any
 
@@ -12,7 +12,28 @@ class LocationRequest(BaseModel):
 
 
 class LocationResponse(BaseModel):
+    """
+    Live environmental context for a point.
+
+    Every source block may be empty: a partial result is a valid
+    result. `degraded_sources` says which sources did not answer and
+    why, and `field_sources` records which source supplied each
+    canonical value so measured data stays distinguishable from
+    reasoned output.
+    """
+
     location: dict[str, float]
-    climate: dict[str, Any]
-    biodiversity: dict[str, Any]
-    data_sources: list[dict[str, Any]]
+
+    climate: dict[str, Any] = Field(default_factory=dict)
+    soil: dict[str, Any] = Field(default_factory=dict)
+    land_cover: dict[str, Any] = Field(default_factory=dict)
+    biodiversity: dict[str, Any] = Field(default_factory=dict)
+
+    canonical_values: dict[str, Any] = Field(default_factory=dict)
+    field_sources: dict[str, str] = Field(default_factory=dict)
+
+    data_sources: list[dict[str, Any]] = Field(default_factory=list)
+    degraded_sources: list[dict[str, Any]] = Field(
+        default_factory=list
+    )
+    partial: bool = False
