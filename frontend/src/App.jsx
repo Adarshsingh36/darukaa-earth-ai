@@ -1,23 +1,4 @@
-import { useState } from "react"
-import {
-  Activity,
-  ArrowDown,
-  ArrowUp,
-  Bot,
-  CheckCircle2,
-  ChevronRight,
-  CloudRain,
-  Droplets,
-  Leaf,
-  MapPin,
-  Send,
-  Sprout,
-  Thermometer,
-  TreePine,
-  Waves,
-  Wind,
-  XCircle
-} from "lucide-react"
+import { useEffect, useRef, useState } from "react"
 
 const API = "http://127.0.0.1:8080"
 
@@ -29,247 +10,720 @@ const CONVERSATION_ID =
     return id
   })()
 
-const initialEnvironment = {
-  soil_organic_carbon: 0.3,
-  soil_moisture: 12,
-  rainfall_mm: 420,
-  temperature_c: 31,
-  land_use: "wheat monoculture",
-  region: "semi-arid"
+/*
+  There is no seeded environmental state. The previous version opened
+  with invented values (SOC 0.3, rainfall 420 mm) under the ambiguous
+  field names `soil_organic_carbon` and `rainfall_mm`, which the
+  backend schema now rejects outright. Showing fabricated measurements
+  as though they described the user's site is the same class of problem
+  as fabricating a citation.
+*/
+
+// ---------------------------------------------------------------------
+// Ordinal condition scales.
+//
+// Each derived indicator is plotted against its own reference range,
+// the way a lab result is plotted against a normal band. `levels` is
+// ordered from best to worst so the marker position carries meaning.
+// ---------------------------------------------------------------------
+const SCALES = {
+  water_stress: {
+    label: "Water stress",
+    levels: ["low", "moderate", "high"],
+    tone: ["favorable", "moderate", "severe"]
+  },
+  thermal_stress: {
+    label: "Thermal stress",
+    levels: ["low", "moderate", "high"],
+    tone: ["favorable", "moderate", "severe"]
+  },
+  soil_carbon_condition: {
+    label: "Soil carbon",
+    levels: ["favorable", "moderate_stress", "high_stress"],
+    tone: ["favorable", "moderate", "severe"]
+  },
+  soil_ph_condition: {
+    label: "Soil pH",
+    levels: ["favorable", "moderate_stress", "high_stress"],
+    tone: ["favorable", "moderate", "severe"]
+  },
+  habitat_condition: {
+    label: "Habitat",
+    levels: ["favorable", "reduced"],
+    tone: ["favorable", "severe"]
+  },
+  land_cover_pressure: {
+    label: "Land-cover pressure",
+    levels: ["low", "moderate", "high"],
+    tone: ["favorable", "moderate", "severe"]
+  },
+  biodiversity_evidence_confidence: {
+    label: "Survey coverage",
+    levels: ["high", "moderate", "low", "none"],
+    tone: ["favorable", "moderate", "severe", "severe"]
+  }
 }
 
-function MetricCard({ icon: Icon, label, value, unit, status }) {
-  return (
-    <div className="rounded-2xl border border-white/8 bg-white/[0.035] p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-400/10">
-          <Icon size={18} className="text-emerald-300" />
-        </div>
+const TONE_VAR = {
+  favorable: "var(--favorable)",
+  moderate: "var(--moderate)",
+  severe: "var(--severe)",
+  unknown: "var(--unknown)"
+}
 
-        {status && (
-          <span className="rounded-full bg-amber-400/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-amber-300">
-            {status}
-          </span>
-        )}
+const UNITS = {
+  soil_organic_carbon_g_per_kg: "g/kg",
+  precipitation_mm_day: "mm/day",
+  soil_moisture: "%",
+  temperature_c: "\u00B0C",
+  soil_ph: "",
+  species_richness: "species",
+  latitude: "\u00B0",
+  longitude: "\u00B0"
+}
+
+const FIELD_NAMES = {
+  soil_organic_carbon_g_per_kg: "Soil organic carbon",
+  precipitation_mm_day: "Precipitation",
+  soil_ph: "Soil pH",
+  soil_moisture: "Soil moisture",
+  temperature_c: "Temperature",
+  land_use: "Land use",
+  crop: "Crop",
+  region: "Climate region",
+  species_richness: "Species observed",
+  latitude: "Latitude",
+  longitude: "Longitude",
+  habitat_diversity: "Habitat diversity",
+  pollution_level: "Pollution",
+  deforestation_level: "Deforestation"
+}
+
+const readable = (value) =>
+  String(value ?? "").replace(/_/g, " ")
+
+const ordinal = (n) => {
+  const remainder = n % 100
+  if (remainder >= 10 && remainder <= 20) return `${n}th`
+  const suffix = { 1: "st", 2: "nd", 3: "rd" }[n % 10] || "th"
+  return `${n}${suffix}`
+}
+
+// ---------------------------------------------------------------------
+function Rule({ className = "" }) {
+  return (
+    <div
+      className={"h-px w-full " + className}
+      style={{ background: "var(--rule)" }}
+    />
+  )
+}
+
+function SectionHeading({ children, note }) {
+  return (
+    <div className="mb-4 flex items-baseline justify-between gap-4">
+      <h2 className="text-[15px] font-semibold tracking-tight">
+        {children}
+      </h2>
+      {note && (
+        <span
+          className="text-xs"
+          style={{ color: "var(--ink-faint)" }}
+        >
+          {note}
+        </span>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------
+// The signature element: an indicator plotted on its reference range.
+// ---------------------------------------------------------------------
+function ConditionScale({ scale, value }) {
+  const index = scale.levels.indexOf(String(value))
+  const known = index >= 0
+  const tone = known ? scale.tone[index] : "unknown"
+  const color = TONE_VAR[tone]
+
+  return (
+    <div className="py-3">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-[13px]">{scale.label}</span>
+        <span
+          className="text-[13px] font-medium"
+          style={{ color }}
+        >
+          {known ? readable(value) : "not measured"}
+        </span>
       </div>
 
-      <div className="text-xs text-slate-500">{label}</div>
+      <div
+        className="mt-2 flex gap-1"
+        role="img"
+        aria-label={`${scale.label}: ${
+          known ? readable(value) : "not measured"
+        }`}
+      >
+        {scale.levels.map((level, position) => {
+          const active = known && position === index
+          const passed = known && position < index
 
-      <div className="mt-1 flex items-end gap-1">
-        <span className="text-2xl font-semibold tracking-tight text-white">
-          {value}
-        </span>
-
-        {unit && (
-          <span className="mb-1 text-xs text-slate-500">
-            {unit}
-          </span>
-        )}
+          return (
+            <div
+              key={level}
+              className="h-1.5 flex-1 rounded-[1px]"
+              style={{
+                background: active
+                  ? color
+                  : passed
+                    ? "var(--rule)"
+                    : "var(--rule-soft)"
+              }}
+            />
+          )
+        })}
       </div>
     </div>
   )
 }
 
-function EvidenceCard({ evidence }) {
+// ---------------------------------------------------------------------
+// Observations, with provenance. A value from SoilGrids must not look
+// like a value the user measured themselves.
+// ---------------------------------------------------------------------
+function ObservationRecord({ variables, provenance, notes, referenceContext }) {
+  const entries = Object.entries(variables || {}).filter(
+    ([key]) => key !== "latitude" && key !== "longitude"
+  )
+
+  const sources = provenance?.field_sources || {}
+  const referenceFields = referenceContext?.fields || {}
+
+  if (!entries.length) {
+    return (
+      <p
+        className="text-[13px] leading-6"
+        style={{ color: "var(--ink-soft)" }}
+      >
+        No observations recorded yet. Describe the site below, or give
+        coordinates and the record fills from NASA POWER, SoilGrids,
+        WorldCover and GBIF.
+      </p>
+    )
+  }
+
   return (
-    <div className="group rounded-xl border border-white/8 bg-white/[0.025] p-4 transition hover:border-emerald-400/20 hover:bg-white/[0.04]">
-      <div className="flex items-start gap-3">
-        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-400/10">
-          <Leaf size={15} className="text-emerald-300" />
+    <div>
+      <div className="space-y-0">
+        {entries.map(([key, value], position) => {
+          const source = sources[key]
+          const unit = UNITS[key]
+          const numeric = typeof value === "number"
+
+          return (
+            <div key={key}>
+              {position > 0 && (
+                <Rule className="opacity-40" />
+              )}
+              <div className="flex items-baseline justify-between gap-4 py-2.5">
+                <div className="min-w-0">
+                  <div className="text-[13px]">
+                    {FIELD_NAMES[key] || readable(key)}
+                  </div>
+                  <div
+                    className="text-[11px]"
+                    style={{ color: "var(--ink-faint)" }}
+                  >
+                    {source
+                      ? `retrieved from ${source}`
+                      : "your observation"}
+                  </div>
+                </div>
+
+                <div className="shrink-0 text-right">
+                  <div
+                    className={
+                      "text-[13px] " + (numeric ? "measure" : "")
+                    }
+                  >
+                    {numeric ? value : readable(value)}
+                    {unit && (
+                      <span
+                        className="ml-1 text-[11px]"
+                        style={{ color: "var(--ink-faint)" }}
+                      >
+                        {unit}
+                      </span>
+                    )}
+                  </div>
+
+                  {referenceFields[key] && (
+                    <div
+                      className="text-[11px]"
+                      style={{ color: "var(--ink-faint)" }}
+                      title={referenceFields[key].note}
+                    >
+                      {ordinal(
+                        Math.round(referenceFields[key].percentile)
+                      )}{" "}
+                      pct. of {referenceFields[key].reference_n} ref.
+                      sites
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {notes?.length > 0 && (
+        <ul className="mt-4 space-y-1.5">
+          {notes.map((note) => (
+            <li
+              key={note}
+              className="text-[11px] leading-5"
+              style={{ color: "var(--ink-faint)" }}
+            >
+              {note}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------
+function GeographicContext({ variables, provenance }) {
+  const { latitude, longitude } = variables || {}
+  if (latitude == null || longitude == null) return null
+
+  const retrieved = provenance?.retrieved_live || []
+  const degraded = provenance?.degraded_sources || []
+
+  return (
+    <div
+      className="mt-5 border-t pt-4"
+      style={{ borderColor: "var(--rule)" }}
+    >
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-[13px]">Location</span>
+        <span className="measure text-[13px]">
+          {Number(latitude).toFixed(4)},{" "}
+          {Number(longitude).toFixed(4)}
+        </span>
+      </div>
+
+      {retrieved.map((source) => (
+        <div key={source.source} className="mt-3">
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="text-[12px]">{source.source}</span>
+            <span
+              className="text-[11px]"
+              style={{ color: "var(--ink-faint)" }}
+            >
+              {(source.variables || [])
+                .map((name) => FIELD_NAMES[name] || readable(name))
+                .join(", ")}
+            </span>
+          </div>
+          <p
+            className="mt-1 text-[11px] leading-5"
+            style={{ color: "var(--ink-faint)" }}
+          >
+            {source.caveat}
+          </p>
+        </div>
+      ))}
+
+      {degraded.map((failure) => (
+        <p
+          key={failure.source}
+          className="mt-3 text-[11px] leading-5"
+          style={{ color: "var(--severe)" }}
+        >
+          {failure.source} did not respond, so its variables are
+          missing from this record. {failure.reason}
+        </p>
+      ))}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------
+// A recommendation. Ordered by confidence, so the numbering encodes a
+// real ranking rather than decoration.
+// ---------------------------------------------------------------------
+function Finding({ finding, position }) {
+  const [openFactors, setOpenFactors] = useState(false)
+
+  const evidenceTone =
+    finding.evidence_status === "supported"
+      ? "favorable"
+      : finding.evidence_status === "weak"
+        ? "moderate"
+        : "unknown"
+
+  return (
+    <article className="py-7">
+      <div className="grid gap-6 md:grid-cols-[2.5rem_1fr]">
+        <div
+          className="measure pt-0.5 text-[13px]"
+          style={{ color: "var(--ink-faint)" }}
+        >
+          {String(position).padStart(2, "0")}
         </div>
 
         <div className="min-w-0">
-          <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-300">
-            {evidence.source}
-          </div>
+          <h3 className="max-w-[62ch] text-[17px] font-semibold leading-7 tracking-tight">
+            {finding.recommendation}
+          </h3>
 
-          <div className="mt-1 text-sm font-medium text-slate-200">
-            {evidence.title}
-          </div>
-
-          <div className="mt-1 text-xs text-slate-600">
-            Knowledge record {evidence.id}
-          </div>
-        </div>
-
-        <ChevronRight
-          size={15}
-          className="ml-auto mt-1 text-slate-700 transition group-hover:text-emerald-400"
-        />
-      </div>
-    </div>
-  )
-}
-
-function RecommendationCard({ recommendation, index }) {
-  const Icon = index === 0 ? Sprout : TreePine
-
-  return (
-    <div className="rounded-2xl border border-emerald-400/10 bg-gradient-to-br from-emerald-400/[0.06] to-transparent p-5">
-      <div className="flex items-start gap-4">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-400/10">
-          <Icon size={21} className="text-emerald-300" />
-        </div>
-
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <h3 className="text-sm font-semibold leading-6 text-white">
-              {recommendation.recommendation}
-            </h3>
-
-            <div className="rounded-full border border-emerald-400/15 bg-emerald-400/10 px-2.5 py-1 text-[11px] font-bold text-emerald-300">
-              {Math.round(recommendation.confidence * 100)}% confidence
-            </div>
-          </div>
-
-          <p className="mt-3 text-sm leading-6 text-slate-400">
-            {recommendation.why_it_works}
+          <p
+            className="mt-3 max-w-[70ch] text-[14px] leading-7"
+            style={{ color: "var(--ink-soft)" }}
+          >
+            {finding.why_it_works}
           </p>
 
-          <div className="mt-4 flex flex-wrap gap-2">
-            {recommendation.impacted_metrics.map((metric) => (
-              <span
-                key={metric}
-                className="rounded-lg border border-white/7 bg-black/15 px-2.5 py-1 text-[11px] text-slate-400"
+          {finding.expected_change && (
+            <p
+              className="mt-2 max-w-[70ch] text-[13px] leading-6"
+              style={{ color: "var(--ink-faint)" }}
+            >
+              {finding.expected_change}
+            </p>
+          )}
+
+          <dl className="mt-5 grid gap-x-8 gap-y-4 sm:grid-cols-3">
+            <div>
+              <dt
+                className="text-[11px]"
+                style={{ color: "var(--ink-faint)" }}
               >
-                {metric}
-              </span>
-            ))}
-          </div>
+                Affects
+              </dt>
+              <dd className="mt-1 text-[13px] leading-6">
+                {finding.impacted_metrics.join(", ")}
+              </dd>
+            </div>
 
-          <div className="mt-4 flex items-center justify-between border-t border-white/6 pt-3">
-            <span className="text-xs text-slate-500">
-              Horizon:{" "}
-              <span className="text-slate-300">
-                {recommendation.time_horizon}
-              </span>
-            </span>
+            <div>
+              <dt
+                className="text-[11px]"
+                style={{ color: "var(--ink-faint)" }}
+              >
+                Time horizon
+              </dt>
+              <dd className="mt-1 text-[13px] leading-6">
+                {finding.time_horizon}
+              </dd>
+            </div>
 
-            <span className="flex items-center gap-1 text-xs text-emerald-300">
-              Evidence-backed
-              <CheckCircle2 size={13} />
-            </span>
+            <div>
+              <dt
+                className="text-[11px]"
+                style={{ color: "var(--ink-faint)" }}
+              >
+                {finding.confidence_label || "Prototype confidence"}
+              </dt>
+              <dd className="mt-1 flex items-baseline gap-2">
+                <span className="measure text-[13px]">
+                  {Math.round(finding.confidence * 100)}%
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setOpenFactors((open) => !open)}
+                  className="text-[12px] underline underline-offset-2"
+                  style={{ color: "var(--ink-faint)" }}
+                >
+                  {openFactors ? "Hide how" : "How this was scored"}
+                </button>
+              </dd>
+            </div>
+          </dl>
+
+          {openFactors && (
+            <div
+              className="record-in mt-4 border-l pl-4"
+              style={{ borderColor: "var(--rule)" }}
+            >
+              {finding.confidence_caveat && (
+                <p
+                  className="max-w-[70ch] text-[12px] leading-6"
+                  style={{ color: "var(--ink-soft)" }}
+                >
+                  {finding.confidence_caveat}
+                </p>
+              )}
+
+              <div className="mt-3 space-y-2">
+                {(finding.confidence_factors || []).map((factor) => (
+                  <div
+                    key={factor.name}
+                    className="flex items-baseline justify-between gap-4"
+                  >
+                    <span
+                      className="max-w-[56ch] text-[12px] leading-5"
+                      style={{ color: "var(--ink-soft)" }}
+                    >
+                      {factor.detail}
+                    </span>
+                    <span
+                      className="measure shrink-0 text-[12px]"
+                      style={{ color: "var(--ink-faint)" }}
+                    >
+                      {factor.value.toFixed(2)} &times;{" "}
+                      {factor.weight.toFixed(2)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              {finding.limiting_factor && (
+                <p
+                  className="mt-3 max-w-[70ch] text-[12px] leading-6"
+                  style={{ color: "var(--ink-faint)" }}
+                >
+                  Most limiting: {finding.limiting_factor}
+                </p>
+              )}
+            </div>
+          )}
+
+          <div
+            className="mt-5 border-t pt-4"
+            style={{ borderColor: "var(--rule-soft)" }}
+          >
+            <div
+              className="text-[11px]"
+              style={{ color: TONE_VAR[evidenceTone] }}
+            >
+              {finding.evidence_status === "supported"
+                ? "Supporting evidence"
+                : finding.evidence_status === "weak"
+                  ? "Partially relevant evidence"
+                  : "No qualifying evidence"}
+            </div>
+
+            {finding.evidence?.length > 0 ? (
+              <ul className="mt-2 space-y-2">
+                {finding.evidence.map((item) => (
+                  <li
+                    key={item.id}
+                    className="flex items-baseline justify-between gap-4"
+                  >
+                    <a
+                      href={`${API}/knowledge/${item.id}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="max-w-[62ch] text-[13px] leading-6 underline underline-offset-2"
+                    >
+                      {item.title}
+                      <span
+                        className="ml-2 text-[11px] no-underline"
+                        style={{ color: "var(--ink-faint)" }}
+                      >
+                        {item.source}
+                        {item.year ? `, ${item.year}` : ""}
+                      </span>
+                    </a>
+                    <span
+                      className="measure shrink-0 text-[11px]"
+                      style={{ color: "var(--ink-faint)" }}
+                    >
+                      {item.relevance?.toFixed(2)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p
+                className="mt-2 max-w-[70ch] text-[13px] leading-6"
+                style={{ color: "var(--ink-soft)" }}
+              >
+                {finding.evidence_note}
+              </p>
+            )}
           </div>
         </div>
+      </div>
+    </article>
+  )
+}
+
+// ---------------------------------------------------------------------
+function Conversation({
+  messages,
+  input,
+  setInput,
+  onSend,
+  loading,
+  missing
+}) {
+  const endRef = useRef(null)
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ block: "nearest" })
+  }, [messages, loading])
+
+  return (
+    <div>
+      <div className="max-h-[22rem] space-y-4 overflow-y-auto pr-1">
+        {messages.length === 0 && (
+          <p
+            className="text-[13px] leading-7"
+            style={{ color: "var(--ink-soft)" }}
+          >
+            Describe the site in your own words. Units are converted
+            and reported back, so &ldquo;0.58% SOC&rdquo; and
+            &ldquo;600 mm annual rainfall&rdquo; are both understood.
+            Values already given are remembered between messages.
+          </p>
+        )}
+
+        {messages.map((message, index) => (
+          <div key={index}>
+            <div
+              className="text-[11px]"
+              style={{ color: "var(--ink-faint)" }}
+            >
+              {message.role === "user" ? "You" : "Assessment"}
+            </div>
+            <p className="mt-1 max-w-[64ch] text-[13px] leading-6">
+              {message.content}
+            </p>
+          </div>
+        ))}
+
+        {loading && (
+          <p
+            className="text-[13px]"
+            style={{ color: "var(--ink-faint)" }}
+          >
+            Reasoning and retrieving evidence&hellip;
+          </p>
+        )}
+
+        <div ref={endRef} />
+      </div>
+
+      {missing?.length > 0 && (
+        <p
+          className="mt-4 text-[12px] leading-6"
+          style={{ color: "var(--moderate)" }}
+        >
+          Still needed: {missing.map(readable).join(", ")}
+        </p>
+      )}
+
+      <div
+        className="mt-4 border-t pt-4"
+        style={{ borderColor: "var(--rule)" }}
+      >
+        <textarea
+          value={input}
+          onChange={(event) => setInput(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault()
+              onSend()
+            }
+          }}
+          rows={3}
+          placeholder="My SOC is 0.58%, annual rainfall is 600 mm, pH is 5.4 and this is wheat monoculture."
+          className="w-full resize-none rounded-sm border bg-transparent p-3 text-[13px] leading-6 placeholder:opacity-45"
+          style={{ borderColor: "var(--rule)" }}
+        />
+
+        <button
+          type="button"
+          onClick={onSend}
+          disabled={loading || !input.trim()}
+          className="mt-3 rounded-sm px-4 py-2 text-[13px] font-medium disabled:opacity-40"
+          style={{ background: "var(--ink)", color: "var(--panel)" }}
+        >
+          {loading ? "Assessing" : "Assess site"}
+        </button>
       </div>
     </div>
   )
 }
 
-function App() {
-  const [environment, setEnvironment] = useState(initialEnvironment)
-  const [analysis, setAnalysis] = useState(null)
+// ---------------------------------------------------------------------
+function Panel({ children, className = "" }) {
+  return (
+    <section
+      className={"rounded-sm border p-6 " + className}
+      style={{
+        borderColor: "var(--rule)",
+        background: "var(--panel)"
+      }}
+    >
+      {children}
+    </section>
+  )
+}
+
+// ---------------------------------------------------------------------
+export default function App() {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState("")
   const [loading, setLoading] = useState(false)
+  const [analysis, setAnalysis] = useState(null)
+  const [variables, setVariables] = useState({})
+  const [missing, setMissing] = useState([])
+  const [mergeNotes, setMergeNotes] = useState([])
 
   const sendMessage = async () => {
     if (!input.trim() || loading) return
 
-    const userMessage = input.trim()
-
+    const message = input.trim()
+    setInput("")
     setMessages((prev) => [
       ...prev,
-      {
-        role: "user",
-        content: userMessage
-      }
+      { role: "user", content: message }
     ])
-
-    setInput("")
     setLoading(true)
 
     try {
       const response = await fetch(`${API}/chat`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           conversation_id: CONVERSATION_ID,
-          message: userMessage
+          message
         })
       })
 
       if (!response.ok) {
-        throw new Error("Backend request failed")
+        throw new Error(`HTTP ${response.status}`)
       }
 
       const data = await response.json()
 
-      if (data.environment) {
-        setEnvironment((prev) => ({
-          ...prev,
-          ...data.environment
-        }))
-      }
-
-      if (data.type === "clarification") {
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: data.message
-          }
-        ])
-      }
+      setVariables(data.environment || {})
+      setMissing(data.missing_variables || [])
+      setMergeNotes(data.normalization_notes || [])
 
       if (data.type === "analysis") {
-  setAnalysis(data.analysis)
+        setAnalysis(data.analysis)
+      }
 
-  const result = data.analysis
-
-  const topRecommendation =
-    result?.recommendations?.[0]?.recommendation
-
-  const confidence = result?.recommendations?.length
-    ? Math.round(
-        result.recommendations.reduce(
-          (sum, r) => sum + r.confidence,
-          0
-        ) /
-          result.recommendations.length *
-          100
-      )
-    : null
-
-  const reasoningSummary =
-    result?.reasoning_chain?.length
-      ? result.reasoning_chain.join(" ")
-      : "The available environmental signals indicate interacting ecological stress."
-
-  const assistantResponse = [
-    "Assessment complete.",
-    "",
-    reasoningSummary,
-    "",
-    topRecommendation
-      ? `Priority intervention: ${topRecommendation}`
-      : "",
-    confidence
-      ? `Recommendation confidence: ${confidence}%.`
-      : "",
-    "",
-    "I have updated the assessment workspace with the environmental state, reasoning chain, recommendations and scientific evidence."
-  ]
-    .filter(Boolean)
-    .join("\n")
-
-  setMessages((prev) => [
-    ...prev,
-    {
-      role: "assistant",
-      content: assistantResponse
-    }
-  ])
-}
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: data.message }
+      ])
     } catch (error) {
       setMessages((prev) => [
         ...prev,
         {
           role: "assistant",
           content:
-            "I couldn't connect to the Darukaa.Earth analysis engine. Please make sure the FastAPI backend is running on port 8080."
+            `The analysis engine did not respond (${error.message}). ` +
+            `Start the backend with: uvicorn app.main:app --port 8080`
         }
       ])
     } finally {
@@ -277,500 +731,203 @@ function App() {
     }
   }
 
-  const reasoning = analysis?.reasoning_chain || [
-    "Low soil organic carbon can reduce aggregate stability and water-retention capacity.",
-    "Low rainfall increases seasonal water stress.",
-    "Monoculture provides relatively low habitat and resource diversity.",
-    "Together these constraints can amplify drought stress while limiting habitat niches."
-  ]
-
-  const recommendations = analysis?.recommendations || []
-
-  const evidence = analysis?.retrieved_evidence || []
+  const derived = analysis?.derived_features || null
+  const findings = analysis?.recommendations || []
+  const provenance = analysis?.data_provenance || null
 
   return (
-    <div className="min-h-screen bg-[#07110d] text-slate-200">
-      {/* Header */}
-      <header className="sticky top-0 z-30 border-b border-white/7 bg-[#07110d]/90 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-[1500px] items-center justify-between px-6 py-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-emerald-400/20 bg-emerald-400/10">
-              <TreePine size={21} className="text-emerald-300" />
-            </div>
-
-            <div>
-              <div className="text-sm font-bold tracking-[0.22em] text-white">
-                DARUKAA<span className="text-emerald-300">.EARTH</span>
-              </div>
-              <div className="text-[10px] uppercase tracking-[0.16em] text-slate-600">
-                Environmental Intelligence
-              </div>
-            </div>
+    <div className="min-h-screen">
+      <header
+        className="border-b"
+        style={{ borderColor: "var(--rule)" }}
+      >
+        <div className="mx-auto flex max-w-[1180px] flex-wrap items-baseline justify-between gap-3 px-6 py-5">
+          <div className="flex items-baseline gap-3">
+            <span className="text-[15px] font-semibold tracking-tight">
+              Darukaa.Earth
+            </span>
+            <span
+              className="text-[13px]"
+              style={{ color: "var(--ink-faint)" }}
+            >
+              Environmental assessment record
+            </span>
           </div>
 
-          <div className="hidden items-center gap-2 rounded-full border border-emerald-400/10 bg-emerald-400/5 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-300 sm:flex">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-300" />
-            Intelligence Engine Online
-          </div>
+          <span
+            className="text-[12px]"
+            style={{ color: "var(--ink-faint)" }}
+          >
+            Prototype. Findings are not validated ecological
+            predictions.
+          </span>
         </div>
       </header>
 
-      <main className="mx-auto max-w-[1500px] space-y-6 px-6 py-6">
+      <main className="mx-auto max-w-[1180px] px-6 py-8">
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
+          {/* Observations and conversation */}
+          <Panel>
+            <SectionHeading
+              note={
+                provenance?.live_enrichment_succeeded
+                  ? "measured and retrieved"
+                  : undefined
+              }
+            >
+              Observations
+            </SectionHeading>
 
-        {/* Intro */}
-        <section className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
-          <div>
-            <div className="mb-2 flex items-center gap-2 text-xs text-slate-600">
-              <MapPin size={13} />
-              Environmental assessment workspace
-            </div>
-
-            <h1 className="text-3xl font-semibold tracking-tight text-white md:text-4xl">
-              Ecosystem intelligence
-              <span className="text-emerald-300"> in context.</span>
-            </h1>
-
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
-              Connect soil, climate, land-use and biodiversity signals to
-              uncover ecological constraints and evidence-backed interventions.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2 rounded-xl border border-white/7 bg-white/[0.025] px-4 py-3">
-            <Activity size={16} className="text-emerald-300" />
-            <div>
-              <div className="text-[10px] uppercase tracking-wider text-slate-600">
-                Assessment mode
-              </div>
-              <div className="text-xs font-medium text-slate-300">
-                Multi-metric reasoning
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Top Grid */}
-        <section className="grid gap-5 xl:grid-cols-[1.05fr_1.5fr_1fr]">
-
-          {/* Site Profile */}
-          <div className="rounded-2xl border border-white/7 bg-white/[0.025] p-5">
-            <div className="mb-5 flex items-center justify-between">
-              <div>
-                <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-300">
-                  Site profile
-                </div>
-                <div className="mt-1 text-sm font-medium text-white">
-                  Current environmental state
-                </div>
-              </div>
-
-              <div className="rounded-lg bg-white/[0.04] p-2">
-                <Waves size={16} className="text-slate-500" />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <MetricCard
-                icon={Leaf}
-                label="Soil organic carbon"
-                value={environment.soil_organic_carbon ?? "—"}
-                unit="%"
-                status={environment.soil_organic_carbon !== undefined ? "Low" : null}
-              />
-
-              <MetricCard
-                icon={Droplets}
-                label="Soil moisture"
-                value={environment.soil_moisture ?? "—"}
-                unit="%"
-              />
-
-              <MetricCard
-                icon={CloudRain}
-                label="Annual rainfall"
-                value={environment.rainfall_mm ?? "—"}
-                unit="mm"
-                status={environment.rainfall_mm ? "Dry" : null}
-              />
-
-              <MetricCard
-                icon={Thermometer}
-                label="Temperature"
-                value={environment.temperature_c ?? "—"}
-                unit="°C"
-              />
-            </div>
-
-            <div className="mt-3 rounded-xl border border-white/7 bg-black/10 p-4">
-              <div className="text-[10px] uppercase tracking-wider text-slate-600">
-                Land use
-              </div>
-
-              <div className="mt-1 text-sm font-medium capitalize text-slate-200">
-                {environment.land_use || "Not specified"}
-              </div>
-
-              <div className="mt-3 flex items-center gap-2">
-                <Wind size={13} className="text-slate-600" />
-                <span className="text-xs text-slate-500">
-                  {environment.region || "Region not specified"}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Map */}
-          <div className="relative min-h-[430px] overflow-hidden rounded-2xl border border-white/7 bg-[#0a1711]">
-            <div className="absolute left-5 top-5 z-10">
-              <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-300">
-                Spatial context
-              </div>
-              <div className="mt-1 text-sm font-medium text-white">
-                Environmental site
-              </div>
-            </div>
-
-            {/* Map grid */}
-            <div
-              className="absolute inset-0 opacity-30"
-              style={{
-                backgroundImage:
-                  "linear-gradient(rgba(112, 168, 128, 0.12) 1px, transparent 1px), linear-gradient(90deg, rgba(112, 168, 128, 0.12) 1px, transparent 1px)",
-                backgroundSize: "55px 55px"
-              }}
+            <ObservationRecord
+              variables={variables}
+              provenance={provenance}
+              notes={mergeNotes}
+              referenceContext={
+                derived?.reference_dataset_context
+              }
             />
 
-            {/* Landscape shapes */}
-            <div className="absolute -left-20 top-28 h-72 w-72 rounded-full border border-emerald-400/10 bg-emerald-400/[0.025]" />
-            <div className="absolute right-[-80px] bottom-[-100px] h-96 w-96 rounded-full border border-emerald-400/10 bg-emerald-400/[0.025]" />
+            <GeographicContext
+              variables={variables}
+              provenance={provenance}
+            />
 
-            {/* Site marker */}
-            <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
-              <div className="absolute -inset-8 animate-ping rounded-full bg-emerald-400/10" />
-              <div className="relative flex h-14 w-14 items-center justify-center rounded-full border border-emerald-300/30 bg-emerald-400/15 shadow-[0_0_60px_rgba(52,211,153,0.12)]">
-                <MapPin size={22} className="text-emerald-300" />
-              </div>
+            <div
+              className="mt-6 border-t pt-6"
+              style={{ borderColor: "var(--rule)" }}
+            >
+              <Conversation
+                messages={messages}
+                input={input}
+                setInput={setInput}
+                onSend={sendMessage}
+                loading={loading}
+                missing={missing}
+              />
             </div>
+          </Panel>
 
-            <div className="absolute bottom-5 left-5 right-5 flex items-end justify-between">
-              <div className="rounded-xl border border-white/7 bg-black/30 px-3 py-2 backdrop-blur-md">
-                <div className="text-[9px] uppercase tracking-wider text-slate-600">
-                  Location
-                </div>
-                <div className="mt-0.5 text-xs text-slate-400">
-                  Coordinates not provided
-                </div>
+          {/* Condition readout */}
+          <Panel className="h-fit">
+            <SectionHeading note="derived">Condition</SectionHeading>
+
+            {derived ? (
+              <div className="record-in divide-y" style={{ borderColor: "var(--rule-soft)" }}>
+                {Object.entries(SCALES).map(([key, scale]) => (
+                  <ConditionScale
+                    key={key}
+                    scale={scale}
+                    value={derived[key]}
+                  />
+                ))}
               </div>
-
-              <div className="rounded-xl border border-white/7 bg-black/30 px-3 py-2 backdrop-blur-md">
-                <div className="text-[9px] uppercase tracking-wider text-slate-600">
-                  Data layers
-                </div>
-                <div className="mt-0.5 text-xs text-emerald-300">
-                  6 environmental signals
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Assessment */}
-          <div className="rounded-2xl border border-white/7 bg-white/[0.025] p-5">
-            <div className="flex items-center gap-2">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-400/10">
-                <Bot size={17} className="text-emerald-300" />
-              </div>
-
-              <div>
-                <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-300">
-                  AI assessment
-                </div>
-                <div className="text-sm font-medium text-white">
-                  Ecological constraint
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-7">
-              <div className="text-4xl font-semibold tracking-tight text-white">
-                Biodiversity
-              </div>
-
-              <div className="mt-1 text-4xl font-semibold tracking-tight text-emerald-300">
-                pressure
-              </div>
-
-              <p className="mt-4 text-sm leading-6 text-slate-500">
-                Multiple interacting environmental constraints are increasing
-                ecological stress across the assessed site.
+            ) : (
+              <p
+                className="text-[13px] leading-6"
+                style={{ color: "var(--ink-soft)" }}
+              >
+                Indicators appear once an assessment runs.
               </p>
-            </div>
+            )}
 
-            <div className="mt-6 space-y-2">
-              {[
-                ["Low soil carbon", "Water retention"],
-                ["Low rainfall", "Seasonal stress"],
-                ["Monoculture", "Habitat diversity"]
-              ].map(([a, b]) => (
-                <div
-                  key={a}
-                  className="flex items-center justify-between rounded-xl border border-white/6 bg-black/10 px-3 py-2.5"
-                >
-                  <span className="text-xs text-slate-400">{a}</span>
-                  <ChevronRight size={13} className="text-slate-700" />
-                  <span className="text-xs text-slate-300">{b}</span>
-                </div>
-              ))}
-            </div>
+            {derived && (
+              <p
+                className="mt-5 max-w-[46ch] text-[11px] leading-5"
+                style={{ color: "var(--ink-faint)" }}
+              >
+                Indicators are computed from prototype thresholds. They
+                describe conditions, not ecological outcomes.
+              </p>
+            )}
 
-            <div className="mt-5 rounded-xl bg-emerald-400/7 p-3">
-              <div className="text-[10px] uppercase tracking-wider text-emerald-300">
-                Reasoning confidence
-              </div>
-
-              <div className="mt-2 flex items-end gap-2">
-                <span className="text-2xl font-semibold text-white">
-                  {recommendations.length
-                    ? Math.round(
-                        recommendations.reduce(
-                          (sum, r) => sum + r.confidence,
-                          0
-                        ) / recommendations.length * 100
-                      )
-                    : 92}
-                  %
-                </span>
-
-                <span className="mb-1 text-xs text-slate-600">
-                  evidence-supported
-                </span>
-              </div>
-            </div>
-          </div>
-        </section>
+            {analysis?.biodiversity_observation_note && (
+              <p
+                className="mt-3 max-w-[46ch] text-[11px] leading-5"
+                style={{ color: "var(--ink-faint)" }}
+              >
+                {analysis.biodiversity_observation_note}
+              </p>
+            )}
+          </Panel>
+        </div>
 
         {/* Reasoning */}
-        <section className="rounded-2xl border border-white/7 bg-white/[0.025] p-5">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-300">
-                Causal reasoning
-              </div>
-              <div className="mt-1 text-sm font-medium text-white">
-                How the environmental signals interact
-              </div>
-            </div>
+        {analysis?.reasoning_chain?.length > 0 && (
+          <Panel className="record-in mt-6">
+            <SectionHeading note="how the variables interact">
+              Reasoning
+            </SectionHeading>
 
-            <div className="hidden items-center gap-2 text-[10px] uppercase tracking-wider text-slate-600 md:flex">
-              <Activity size={13} />
-              Multi-variable inference
-            </div>
-          </div>
-
-          <div className="mt-5 grid gap-3 md:grid-cols-4">
-            {reasoning.map((step, index) => (
-              <div key={step} className="relative">
-                <div className="h-full rounded-xl border border-white/7 bg-black/10 p-4">
-                  <div className="mb-3 flex items-center gap-2">
-                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-400/10 text-[10px] font-bold text-emerald-300">
-                      {index + 1}
-                    </span>
-
-                    {index < reasoning.length - 1 && (
-                      <ArrowDown
-                        size={13}
-                        className="text-slate-700 md:hidden"
-                      />
-                    )}
-                  </div>
-
-                  <p className="text-xs leading-5 text-slate-400">
-                    {step}
-                  </p>
-                </div>
-
-                {index < reasoning.length - 1 && (
-                  <ArrowUp
-                    size={14}
-                    className="absolute -right-2 top-1/2 hidden -translate-y-1/2 rotate-90 text-emerald-400/30 md:block"
-                  />
-                )}
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* Recommendations */}
-        <section className="grid gap-5 lg:grid-cols-[1.4fr_0.6fr]">
-
-          <div>
-            <div className="mb-4">
-              <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-300">
-                Intervention engine
-              </div>
-              <div className="mt-1 text-lg font-semibold text-white">
-                Evidence-backed recommendations
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              {recommendations.length ? (
-                recommendations.map((recommendation, index) => (
-                  <RecommendationCard
-                    key={recommendation.recommendation}
-                    recommendation={recommendation}
-                    index={index}
-                  />
-                ))
-              ) : (
-                <div className="rounded-2xl border border-white/7 bg-white/[0.02] p-6 text-sm text-slate-500">
-                  Submit an environmental assessment through the AI assistant
-                  to generate site-specific recommendations.
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Evidence */}
-          <div>
-            <div className="mb-4">
-              <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-300">
-                Knowledge base
-              </div>
-              <div className="mt-1 text-lg font-semibold text-white">
-                Scientific evidence
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              {evidence.length ? (
-                evidence.map((item) => (
-                  <EvidenceCard key={item.id} evidence={item} />
-                ))
-              ) : (
-                <>
-                  <EvidenceCard
-                    evidence={{
-                      id: "KB-001",
-                      source: "FAO",
-                      title: "Soil organic carbon and soil biological function"
-                    }}
-                  />
-
-                  <EvidenceCard
-                    evidence={{
-                      id: "KB-002",
-                      source: "FAO",
-                      title: "Cover crops and soil protection"
-                    }}
-                  />
-
-                  <EvidenceCard
-                    evidence={{
-                      id: "KB-003",
-                      source: "FAO",
-                      title: "Agroforestry and biodiversity"
-                    }}
-                  />
-                </>
-              )}
-            </div>
-          </div>
-        </section>
-
-        {/* Chat */}
-        <section className="overflow-hidden rounded-2xl border border-emerald-400/10 bg-gradient-to-br from-emerald-400/[0.055] to-transparent">
-          <div className="border-b border-white/7 px-5 py-4">
-            <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-400/10">
-                <Bot size={17} className="text-emerald-300" />
-              </div>
-
-              <div>
-                <div className="text-sm font-semibold text-white">
-                  Ask Darukaa
-                </div>
-
-                <div className="text-xs text-slate-600">
-                  Conversational environmental intelligence
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="max-h-[360px] space-y-3 overflow-y-auto p-5">
-            {!messages.length && (
-              <div className="rounded-xl border border-white/6 bg-black/10 p-4">
-                <div className="text-xs font-medium text-slate-300">
-                  Try asking:
-                </div>
-
-                <div className="mt-2 text-sm text-slate-500">
-                  "Biodiversity is declining on my farm."
-                </div>
-              </div>
-            )}
-
-            {messages.map((message, index) => (
-              <div
-                key={index}
-                className={`flex ${
-                  message.role === "user"
-                    ? "justify-end"
-                    : "justify-start"
-                }`}
-              >
-                <div
-                  className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-6 ${
-                    message.role === "user"
-                      ? "bg-emerald-400 text-[#06100b]"
-                      : "border border-white/7 bg-white/[0.035] text-slate-400"
-                  }`}
+            <ol className="space-y-3">
+              {analysis.reasoning_chain.map((step, index) => (
+                <li
+                  key={index}
+                  className="max-w-[78ch] text-[14px] leading-7"
+                  style={{ color: "var(--ink-soft)" }}
                 >
-                  {message.content}
-                </div>
-              </div>
-            ))}
+                  {step}
+                </li>
+              ))}
+            </ol>
+          </Panel>
+        )}
 
-            {loading && (
-              <div className="flex items-center gap-2 text-xs text-slate-600">
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-300" />
-                Darukaa is reasoning across environmental signals...
-              </div>
-            )}
-          </div>
-
-          <div className="border-t border-white/7 p-4">
-            <div className="flex gap-2">
-              <input
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") sendMessage()
-                }}
-                placeholder="Ask about soil, biodiversity, climate or land..."
-                className="min-w-0 flex-1 rounded-xl border border-white/8 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-700 focus:border-emerald-400/30"
-              />
-
-              <button
-                onClick={sendMessage}
-                disabled={loading || !input.trim()}
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-400 text-[#06100b] transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-30"
+        {/* Findings */}
+        {findings.length > 0 && (
+          <section className="record-in mt-6">
+            <div className="mb-1 flex items-baseline justify-between gap-4">
+              <h2 className="text-[15px] font-semibold tracking-tight">
+                Recommended interventions
+              </h2>
+              <span
+                className="text-[12px]"
+                style={{ color: "var(--ink-faint)" }}
               >
-                <Send size={16} />
-              </button>
+                ranked by prototype confidence
+              </span>
             </div>
-          </div>
-        </section>
 
-        {/* Footer */}
-        <footer className="flex flex-col justify-between gap-2 border-t border-white/6 py-5 text-[10px] uppercase tracking-wider text-slate-700 sm:flex-row">
-          <span>Darukaa.Earth · Environmental Intelligence</span>
-          <span>RAG · Structured Reasoning · Scientific Evidence</span>
-        </footer>
+            <Rule />
 
+            <div
+              className="divide-y"
+              style={{ borderColor: "var(--rule)" }}
+            >
+              {findings.map((finding, index) => (
+                <Finding
+                  key={finding.rule_id || index}
+                  finding={finding}
+                  position={index + 1}
+                />
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Caveats */}
+        {analysis?.caveats?.length > 0 && (
+          <section
+            className="mt-8 border-t pt-6"
+            style={{ borderColor: "var(--rule)" }}
+          >
+            <h2 className="text-[13px] font-semibold">
+              What this assessment cannot tell you
+            </h2>
+
+            <ul className="mt-3 space-y-2">
+              {analysis.caveats.map((caveat) => (
+                <li
+                  key={caveat}
+                  className="max-w-[78ch] text-[12px] leading-6"
+                  style={{ color: "var(--ink-soft)" }}
+                >
+                  {caveat}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
       </main>
     </div>
   )
 }
-
-export default App
