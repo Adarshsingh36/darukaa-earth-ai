@@ -1,0 +1,8 @@
+# Test-only dependencies.
+# The suite runs fully offline: tests/conftest.py substitutes
+# StubKnowledgeService for the ChromaDB-backed KnowledgeService, and
+# tests/test_enrichment.py monkeypatches every live data source, so no
+# model download, vector store, or network access is required.
+pytest>=8.0
+anyio>=4.0
+httpx>=0.27
