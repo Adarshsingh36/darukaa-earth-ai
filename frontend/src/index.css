@@ -1,57 +1,94 @@
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap");
 @import "tailwindcss";
 
+/*
+  Darukaa.Earth — field assessment record.
+
+  Palette note: there is deliberately no brand accent. The only
+  saturated colours on the page belong to the ordinal condition ramp,
+  so a colour always encodes a measured condition rather than
+  decoration. Grey means "not measured", never "less important".
+*/
+
 :root {
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
-  color: #e7f5ec;
-  background: #07110d;
+  --paper: #eceee9;
+  --panel: #f6f7f4;
+  --ink: #15191a;
+  --ink-soft: #4a524c;
+  --ink-faint: #6f776f;
+  --rule: #c9cdc6;
+  --rule-soft: #dcdfd8;
+
+  /* Ordinal condition ramp */
+  --favorable: #2f6a4f;
+  --moderate: #9a7526;
+  --severe: #97341f;
+  --unknown: #7c837c;
+
+  font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  color: var(--ink);
+  background: var(--paper);
 }
 
 * {
   box-sizing: border-box;
 }
 
-html {
-  background: #07110d;
-}
-
+html,
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background:
-    radial-gradient(
-      circle at 15% 10%,
-      rgba(45, 112, 72, 0.18),
-      transparent 30%
-    ),
-    radial-gradient(
-      circle at 85% 20%,
-      rgba(26, 99, 76, 0.12),
-      transparent 28%
-    ),
-    #07110d;
+  background: var(--paper);
 }
 
-button,
-input {
-  font: inherit;
+/* Measurements only. Tabular figures so values align down a column
+   for comparison; not used for labels. */
+.measure {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
 }
 
+/* Keyboard focus stays visible everywhere. */
+:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+textarea,
+input,
 button {
-  cursor: pointer;
+  font: inherit;
+  color: inherit;
 }
 
-::-webkit-scrollbar {
-  width: 7px;
+/* One orchestrated moment: results arriving. Nothing else animates. */
+@keyframes record-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
-::-webkit-scrollbar-track {
-  background: #08130f;
+.record-in {
+  animation: record-in 260ms ease-out both;
 }
 
-::-webkit-scrollbar-thumb {
-  background: #244b38;
-  border-radius: 999px;
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
