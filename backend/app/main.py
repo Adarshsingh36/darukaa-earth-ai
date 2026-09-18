@@ -1,346 +1,83 @@
-﻿from app.api.environment import router as environment_router
+"""
+Darukaa.Earth Environmental Intelligence API.
+
+Endpoints are thin. All pipeline logic lives in
+`app.services.analysis.AnalysisService`, so /analyze and /chat share
+exactly one code path and neither can drift from the other.
+"""
+
+from __future__ import annotations
+
+import logging
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from app.models.schemas import EnvironmentalInput, ChatRequest, AnalysisResponse, Recommendation
+from pydantic import ValidationError
+
+from app.api.environment import router as environment_router
+from app.models.schemas import (
+    AnalysisResponse,
+    ChatRequest,
+    EnvironmentalInput,
+)
+from app.services.analysis import REQUIRED_FOR_CHAT, AnalysisService
+from app.services.chat import ChatParser, memory
 from app.services.knowledge import KnowledgeService
 from app.services.reasoning import ReasoningEngine
-from app.services.chat import memory, ChatParser
+from app.services.units import normalize_external_payload
 
-app=FastAPI(title='Darukaa.Earth Environmental Intelligence API', version='0.1.0')
-app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_credentials=True, allow_methods=['*'], allow_headers=['*'])
-knowledge=KnowledgeService(); reasoning=ReasoningEngine(); parser=ChatParser()
+logger = logging.getLogger("darukaa")
 
-@app.get('/health')
-def health(): return {'status':'ok','knowledge_documents':knowledge.collection.count()}
+app = FastAPI(
+    title="Darukaa.Earth Environmental Intelligence API",
+    version="0.2.0",
+)
 
-@app.post('/knowledge/search')
-def search(payload: dict):
-    return {'results':knowledge.search(payload.get('query',''),payload.get('top_k',5))}
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-@app.post('/analyze', response_model=AnalysisResponse)
-def analyze(env: EnvironmentalInput):
+knowledge = KnowledgeService()
+reasoning = ReasoningEngine()
+analysis = AnalysisService(knowledge, reasoning)
+parser = ChatParser()
 
-    result = reasoning.analyze(env)
 
-    x = result["detected_variables"]
-    chain = result["reasoning_chain"]
-    candidates = result["recommendations"]
-
-    # Build a retrieval query from both the observed variables
-    # and the derived environmental condition.
-    derived = result["derived_features"]
-
-    query_parts = [
-        f"{key}: {value}"
-        for key, value in x.items()
-    ]
-
-    query_parts.extend([
-        f"water stress: {derived['water_stress']}",
-        f"thermal stress: {derived['thermal_stress']}",
-        f"soil carbon condition: "
-        f"{derived['soil_carbon_condition']}",
-        f"soil pH condition: "
-        f"{derived['soil_ph_condition']}",
-        f"land cover pressure: "
-        f"{derived['land_cover_pressure']}",
-        f"habitat condition: "
-        f"{derived['habitat_condition']}",
-    ])
-
-    query = " ".join(query_parts)
-
-    # Retrieve scientific evidence from ChromaDB.
-    evidence = knowledge.search(
-        query or "biodiversity environmental management",
-        5
-    )
-
-    ev = [
-        {
-            "id": r["id"],
-            "source": r["metadata"].get("source"),
-            "title": r["metadata"].get("title"),
-            "distance": r["distance"],
-            "text": r.get("text", ""),
-            "metadata": r.get("metadata", {})
-        }
-        for r in evidence
-    ]
-
-    recs = []
-
-    for candidate in candidates:
-
-        action = candidate["recommendation"]
-        why = candidate["why_it_works"]
-        metrics = candidate["impacted_metrics"]
-        horizon = candidate["time_horizon"]
-        expected_change = candidate.get(
-            "expected_change"
-        )
-
-        def evidence_score(record):
-
-            text = record.get(
-                "text",
-                ""
-            ).lower()
-
-            metadata = record.get(
-                "metadata",
-                {}
-            )
-
-            score = 0
-
-            # Metric relevance
-            for metric in metrics:
-                if metric.lower() in text:
-                    score += 3
-
-            # Recommendation relevance
-            action_terms = [
-                term.lower()
-                for term in action.split()
-                if len(term) > 3
-            ]
-
-            for term in action_terms:
-                if term in text:
-                    score += 1
-
-            intervention = str(
-                metadata.get(
-                    "intervention",
-                    ""
-                )
-            ).lower()
-
-            topic = str(
-                metadata.get(
-                    "topic",
-                    ""
-                )
-            ).lower()
-
-            if intervention and any(
-                term in intervention
-                for term in action_terms
-            ):
-                score += 5
-
-            if topic and any(
-                metric.lower() in topic
-                for metric in metrics
-            ):
-                score += 2
-
-            return score
-
-        scored = [
-            (
-                record,
-                evidence_score(record)
-            )
-            for record in ev
-        ]
-
-        matched = [
-            record
-            for record, score in sorted(
-                scored,
-                key=lambda item: item[1],
-                reverse=True
-            )
-            if score > 0
-        ]
-
-        best_score = (
-            evidence_score(matched[0])
-            if matched
-            else 0
-        )
-
-        confidence = round(
-            min(
-                0.95,
-                candidate.get(
-                    "confidence",
-                    0.55
-                ) + (best_score * 0.03)
-            ),
-            2
-        )
-
-        recs.append(
-            Recommendation(
-                recommendation=action,
-                why_it_works=why,
-                impacted_metrics=metrics,
-                time_horizon=horizon,
-                expected_change=expected_change,
-                confidence=confidence,
-                evidence=[
-                    {
-                        "id": r["id"],
-                        "source": r["source"],
-                        "title": r["title"]
-                    }
-                    for r in matched[:3]
-                ]
-            )
-        )
-
-    required = [
-        "soil_organic_carbon_g_per_kg",
-        "precipitation_mm_day",
-        "land_use"
-    ]
-
-    missing = [
-        field
-        for field in required
-        if getattr(env, field) is None
-    ]
-
-    retrieved_evidence = [
-        {
-            "id": r["id"],
-            "source": r["source"],
-            "title": r["title"],
-            "distance": r["distance"]
-        }
-        for r in ev
-    ]
-
-    return AnalysisResponse(
-        detected_variables=x,
-        missing_variables=missing,
-        reasoning_chain=chain,
-        recommendations=recs,
-        retrieved_evidence=retrieved_evidence
-    )
-@app.post('/chat')
-def chat(req: ChatRequest):
-    # Parse environmental information from natural language
-    parsed = parser.parse(req.message)
-
-    # Start with explicitly supplied structured environmental data
-    if req.environmental:
-        memory.update(
-            req.conversation_id,
-            req.environmental.model_dump(exclude_none=True)
-        )
-
-    # Merge values extracted from the user's message
-    if parsed:
-        memory.update(
-            req.conversation_id,
-            parsed
-        )
-
-    # Retrieve the accumulated environmental context
-    state = memory.get(req.conversation_id)
-
-    environment_data = state.get(
-        "environment",
-        {}
-    )
-
-    env = EnvironmentalInput(
-        **environment_data
-    )
-
-    # Variables required before we can make a meaningful
-    # environmental assessment
-    required = [
-        "soil_organic_carbon_g_per_kg",
-        "precipitation_mm_day",
-        "land_use",
-        "region"
-    ]
-
-    missing = [
-        field
-        for field in required
-        if getattr(env, field) is None
-    ]
-
-    # Store the user message
-    memory.add_message(
-        req.conversation_id,
-        "user",
-        req.message
-    )
-
-    # Ask targeted clarification questions when information
-    # is incomplete.
-    if missing:
-
-        labels = {
-            "soil_organic_carbon_g_per_kg":
-                "soil organic carbon (g/kg)",
-
-            "precipitation_mm_day":
-                "average precipitation (mm/day)",
-
-            "land_use":
-                "land-use type",
-
-            "region":
-                "region or climate zone"
-        }
-
-        requested = [
-            labels[field]
-            for field in missing
-        ]
-
-        reply = (
-            "I can assess the biodiversity conditions, "
-            "but I need a little more information: "
-            + ", ".join(requested)
-            + "."
-        )
-
-        memory.add_message(
-            req.conversation_id,
-            "assistant",
-            reply
-        )
-
-        return {
-            "conversation_id": req.conversation_id,
-            "type": "clarification",
-            "message": reply,
-            "environment": environment_data,
-            "missing_variables": missing
-        }
-
-    # We have sufficient information for analysis
-    result = analyze(env)
-
-    memory.add_message(
-        req.conversation_id,
-        "assistant",
-        result.model_dump_json()
-    )
-
+# --------------------------------------------------------------------
+@app.get("/health")
+def health():
     return {
-        "conversation_id": req.conversation_id,
-        "type": "analysis",
-        "message": (
-            "I combined the available soil, climate, "
-            "water and land-use variables and grounded "
-            "the recommendations in the environmental "
-            "knowledge base."
-        ),
-        "environment": environment_data,
-        "analysis": result
+        "status": "ok",
+        "knowledge_documents": knowledge.count(),
+        "knowledge": knowledge.status(),
     }
 
 
+# --------------------------------------------------------------------
+@app.post("/knowledge/search")
+def search(payload: dict):
+    query = (payload or {}).get("query", "")
+    top_k = int((payload or {}).get("top_k", 5))
+
+    if not query:
+        raise HTTPException(
+            status_code=422,
+            detail="A non-empty 'query' is required.",
+        )
+
+    results = knowledge.search(query, top_k)
+
+    return {
+        "results": results,
+        "vector_index_available": knowledge.available,
+    }
+
+
+# --------------------------------------------------------------------
 @app.get("/knowledge/{knowledge_id}")
 def get_knowledge(knowledge_id: str):
     item = knowledge.get_by_id(knowledge_id)
@@ -348,10 +85,178 @@ def get_knowledge(knowledge_id: str):
     if not item:
         raise HTTPException(
             status_code=404,
-            detail="Knowledge record not found"
+            detail="Knowledge record not found",
         )
 
     return item
 
-app.include_router(environment_router)
 
+# --------------------------------------------------------------------
+@app.post("/analyze", response_model=AnalysisResponse)
+async def analyze(env: EnvironmentalInput) -> AnalysisResponse:
+    """
+    Full assessment.
+
+    When latitude and longitude are present, live geospatial context is
+    retrieved first (NASA POWER, SoilGrids, WorldCover, GBIF). Values
+    the caller supplied are never overwritten by live data; live data
+    fills gaps only. Any source that fails is recorded in
+    `data_provenance.degraded_sources` and the assessment continues.
+    """
+    return await analysis.analyze_location(env)
+
+
+# --------------------------------------------------------------------
+@app.post("/normalize")
+def normalize(payload: dict):
+    """
+    Convert an external/legacy payload into canonical fields and units.
+
+    Exposed so the unit assumptions are inspectable rather than
+    implicit: the caller can see exactly what 'rainfall_mm: 600' was
+    interpreted as before it reaches /analyze.
+    """
+    try:
+        canonical, notes = normalize_external_payload(payload or {})
+        env = EnvironmentalInput(**canonical)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=422, detail=exc.errors()
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422, detail=str(exc)
+        ) from exc
+
+    return {
+        "canonical": env.model_dump(exclude_none=True),
+        "conversion_notes": notes,
+    }
+
+
+# --------------------------------------------------------------------
+@app.post("/chat")
+async def chat(req: ChatRequest):
+    cid = req.conversation_id
+
+    memory.add_message(cid, "user", req.message)
+
+    # Structured input first, then anything parsed from the message,
+    # so an explicit field always beats a text guess.
+    if req.environmental:
+        memory.update(
+            cid, req.environmental.model_dump(exclude_none=True)
+        )
+
+    try:
+        parsed = parser.parse(req.message)
+    except ValidationError as exc:
+        reply = (
+            "I read a value in that message that falls outside a "
+            "physically valid range, so I did not record it. Could "
+            "you re-check it?"
+        )
+        memory.add_message(cid, "assistant", reply)
+        return {
+            "conversation_id": cid,
+            "type": "error",
+            "message": reply,
+            "detail": exc.errors(),
+            "environment": memory.get(cid)["environment"],
+        }
+
+    if parsed:
+        memory.update(cid, parsed.values, parsed.notes)
+
+    state = memory.get(cid)
+    environment_data = state["environment"]
+
+    try:
+        env = EnvironmentalInput(**environment_data)
+    except ValidationError as exc:
+        # Accumulated state should never be invalid; if it is, that is
+        # a bug worth surfacing rather than silently discarding.
+        logger.warning("Invalid accumulated state for %s", cid)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Corrupt conversation state: {exc.errors()}",
+        ) from exc
+
+    # Enrich BEFORE deciding what is missing. Coordinates can answer
+    # soil carbon, precipitation and land use outright, so checking
+    # first would ask the user for values the system can already get.
+    env, live_context = await analysis.prepare(env)
+
+    if live_context.get("values"):
+        memory.update(cid, env.model_dump(exclude_none=True))
+        environment_data = memory.get(cid)["environment"]
+
+    missing = [
+        field
+        for field in REQUIRED_FOR_CHAT
+        if getattr(env, field) is None
+    ]
+
+    if missing:
+        labels = {
+            "soil_organic_carbon_g_per_kg": (
+                "soil organic carbon (g/kg, or a % and I will convert)"
+            ),
+            "precipitation_mm_day": (
+                "precipitation (mm/day, or an annual mm total)"
+            ),
+            "land_use": "land-use type",
+            "region": "region or climate zone",
+        }
+
+        reply = (
+            "To complete the assessment I still need: "
+            + ", ".join(labels[field] for field in missing)
+            + "."
+        )
+
+        memory.add_message(cid, "assistant", reply)
+
+        return {
+            "conversation_id": cid,
+            "type": "clarification",
+            "message": reply,
+            "environment": environment_data,
+            "missing_variables": missing,
+            "normalization_notes": (
+                parsed.notes + live_context.get("merge_notes", [])
+            ),
+            "degraded_sources": live_context.get("failures", []),
+        }
+
+    result = analysis.analyze(env, live_context)
+
+    memory.add_message(cid, "assistant", result.model_dump_json())
+
+    return {
+        "conversation_id": cid,
+        "type": "analysis",
+        "message": (
+            "I combined the accumulated soil, climate, water and "
+            "land-use variables, derived condition indicators, and "
+            "retrieved evidence separately for each recommendation."
+        ),
+        "environment": environment_data,
+        # Always present, on both branches, so the client never has to
+        # tell "nothing missing" apart from "the key wasn't sent".
+        "missing_variables": missing,
+        "normalization_notes": parsed.notes,
+        "degraded_sources": live_context.get("failures", []),
+        "analysis": result,
+    }
+
+
+# --------------------------------------------------------------------
+@app.post("/chat/reset")
+def chat_reset(payload: dict | None = None):
+    cid = (payload or {}).get("conversation_id", "default")
+    memory.reset(cid)
+    return {"conversation_id": cid, "status": "reset"}
+
+
+app.include_router(environment_router)
