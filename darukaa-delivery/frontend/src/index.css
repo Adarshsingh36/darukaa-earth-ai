@@ -1,0 +1,94 @@
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap");
+@import "tailwindcss";
+
+/*
+  Darukaa.Earth — field assessment record.
+
+  Palette note: there is deliberately no brand accent. The only
+  saturated colours on the page belong to the ordinal condition ramp,
+  so a colour always encodes a measured condition rather than
+  decoration. Grey means "not measured", never "less important".
+*/
+
+:root {
+  --paper: #eceee9;
+  --panel: #f6f7f4;
+  --ink: #15191a;
+  --ink-soft: #4a524c;
+  --ink-faint: #6f776f;
+  --rule: #c9cdc6;
+  --rule-soft: #dcdfd8;
+
+  /* Ordinal condition ramp */
+  --favorable: #2f6a4f;
+  --moderate: #9a7526;
+  --severe: #97341f;
+  --unknown: #7c837c;
+
+  font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  color: var(--ink);
+  background: var(--paper);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background: var(--paper);
+}
+
+/* Measurements only. Tabular figures so values align down a column
+   for comparison; not used for labels. */
+.measure {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* Keyboard focus stays visible everywhere. */
+:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+textarea,
+input,
+button {
+  font: inherit;
+  color: inherit;
+}
+
+/* One orchestrated moment: results arriving. Nothing else animates. */
+@keyframes record-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.record-in {
+  animation: record-in 260ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

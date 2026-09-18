@@ -1,0 +1,162 @@
+﻿[
+  {
+    "id": "KB-001",
+    "title": "Soil organic carbon and soil biological function",
+    "source": "FAO",
+    "year": 2017,
+    "variables": [
+      "soil_organic_carbon",
+      "soil_moisture",
+      "microbial_activity"
+    ],
+    "mechanism": "Soil organic matter contributes to aggregation, nutrient cycling and biological activity and can improve water-related soil functions.",
+    "intervention": "Organic matter inputs and cover crops",
+    "evidence": "FAO (2017), 'Soil Organic Carbon: The Hidden Potential,' published at the Global Symposium on Soil Organic Carbon, reports that soil organic carbon underpins soil biological activity, nutrient supply and water-holding capacity, and that cultivated soils have generally lost SOC relative to natural or semi-natural vegetation."
+  },
+  {
+    "id": "KB-002",
+    "title": "Cover crops and soil organic carbon accumulation",
+    "source": "Poeplau & Don, Agriculture, Ecosystems & Environment",
+    "year": 2015,
+    "variables": [
+      "cover_crop",
+      "soil_organic_carbon",
+      "soil_moisture"
+    ],
+    "mechanism": "Living and residue cover protects the soil surface, adds biomass and can support aggregation and infiltration.",
+    "intervention": "Legume or mixed-species cover crops",
+    "evidence": "Poeplau & Don (2015), 'Carbon sequestration in agricultural soils via cultivation of cover crops - a meta-analysis,' Agriculture, Ecosystems & Environment 200:33-41, compiled 139 plots at 37 sites and found winter cover crop treatments held significantly higher soil organic carbon than reference croplands without cover crops."
+  },
+  {
+    "id": "KB-003",
+    "title": "Agroforestry as refuge habitat for tropical biodiversity",
+    "source": "Bhagwat, Willis, Birks & Whittaker, Trends in Ecology & Evolution",
+    "year": 2008,
+    "variables": [
+      "agroforestry",
+      "habitat_diversity",
+      "species_richness",
+      "soil_organic_carbon"
+    ],
+    "mechanism": "Trees and shrubs add vertical habitat structure, litter and root biomass and can diversify farm habitats.",
+    "intervention": "Agroforestry or native hedgerows",
+    "evidence": "Bhagwat, Willis, Birks & Whittaker (2008), 'Agroforestry: a refuge for tropical biodiversity?,' Trends in Ecology & Evolution 23(5):261-267, argues that shade-tree agroforestry can provide habitat outside formally protected land, connecting reserves and easing resource-use pressure on conservation areas, while noting this depends on the system's structure and management."
+  },
+  {
+    "id": "KB-004",
+    "title": "Habitat fragmentation and connectivity under climate change",
+    "source": "IPCC AR6 Working Group II, Chapter 2",
+    "year": 2022,
+    "variables": [
+      "land_use",
+      "fragmentation",
+      "habitat_connectivity",
+      "species_richness"
+    ],
+    "mechanism": "Land-use change and fragmentation alter habitat amount, configuration and connectivity, affecting ecological processes and species persistence.",
+    "intervention": "Habitat corridors and connected native vegetation",
+    "evidence": "IPCC (2022), 'Climate Change 2022: Impacts, Adaptation and Vulnerability,' Working Group II contribution to AR6, Chapter 2 ('Terrestrial and Freshwater Ecosystems and Their Services'), reports with high confidence that land use change, habitat fragmentation, pollution and invasive species have been the primary historical drivers of change in terrestrial and freshwater ecosystems, and that managing landscapes to reduce fragmentation and increase connectivity can provide refugia from extreme events."
+  },
+  {
+    "id": "KB-005",
+    "title": "Climate change, drought and ecosystem stress",
+    "source": "IPCC AR6 Working Group II, Chapter 2",
+    "year": 2022,
+    "variables": [
+      "rainfall",
+      "temperature",
+      "soil_moisture",
+      "species_survival"
+    ],
+    "mechanism": "Increasing heat and shifts in precipitation can increase water stress and alter ecosystem structure and species distributions.",
+    "intervention": "Water-retaining land management and climate-resilient habitat",
+    "evidence": "IPCC (2022), 'Climate Change 2022: Impacts, Adaptation and Vulnerability,' Working Group II contribution to AR6, Chapter 2, reports high-confidence evidence that anthropogenic climate change has contributed to widespread drought-induced tree mortality and vegetation shifts, with non-climatic hazards compounding the effect of water stress on ecosystem function."
+  },
+  {
+    "id": "KB-006",
+    "title": "Pollution as a direct driver of biodiversity loss",
+    "source": "IPBES",
+    "year": 2019,
+    "variables": [
+      "pollution",
+      "species_richness",
+      "water_quality"
+    ],
+    "mechanism": "Pollution is a direct anthropogenic pressure that can degrade habitat and affect organisms and ecological processes.",
+    "intervention": "Source reduction and vegetated buffers",
+    "evidence": "IPBES (2019), 'Global Assessment Report on Biodiversity and Ecosystem Services,' identifies pollution as one of five direct drivers of biodiversity loss globally, alongside land/sea-use change, direct exploitation, climate change and invasive species."
+  },
+  {
+    "id": "KB-007",
+    "title": "Habitat diversity and pollinator populations",
+    "source": "IPBES",
+    "year": 2016,
+    "variables": [
+      "habitat_diversity",
+      "pollinators",
+      "species_richness"
+    ],
+    "mechanism": "Diverse vegetation and floral resources can provide food, nesting and refuge resources for beneficial insects.",
+    "intervention": "Native flowering strips and field margins",
+    "evidence": "IPBES (2016), 'The Assessment Report on Pollinators, Pollination and Food Production' (Potts, Imperatriz-Fonseca & Ngo, eds.), reports that structurally diverse habitat and floral resource availability support wild pollinator populations, and that pollinator declines threaten the regulating ecosystem service pollination provides to food production."
+  },
+  {
+    "id": "KB-008",
+    "title": "Soil pH, acidification and nutrient availability",
+    "source": "FAO / Intergovernmental Technical Panel on Soils",
+    "year": 2015,
+    "variables": [
+      "soil_ph",
+      "nutrient_availability",
+      "plant_growth"
+    ],
+    "mechanism": "Soil pH influences nutrient availability and biological processes; extreme pH can constrain plant growth and soil organisms.",
+    "intervention": "Site-specific pH management based on soil testing",
+    "evidence": "FAO & ITPS (2015), 'Status of the World's Soil Resources: Main Report,' identifies soil acidification alongside erosion and organic-carbon loss as a major threat to soil function, and documents its effect on nutrient availability and biological activity."
+  },
+  {
+    "id": "KB-009",
+    "title": "Monoculture concentration and crop diversification",
+    "source": "FAO",
+    "year": 2019,
+    "variables": [
+      "land_use",
+      "crop_diversity",
+      "pest_pressure",
+      "species_richness"
+    ],
+    "mechanism": "Global food production has concentrated onto a small number of species (fewer than 200 of over 6,000 cultivated plant species contribute significantly to production). Diversifying within a cropping system through rotation, intercropping, or mixed forage reduces pest and weed pressure and broadens the range of resources available to associated species, without requiring the primary crop to be replaced.",
+    "intervention": "Crop rotation, intercropping, and mixed-species forage as an in-system diversification strategy",
+    "evidence": "FAO, The State of the World's Biodiversity for Food and Agriculture (2019), documents the narrowing of global crop diversity and reports that rotation, intercropping and diverse forage reduce pest and weed pressure while supporting biodiversity for food and agriculture."
+  },
+  {
+    "id": "KB-010",
+    "title": "Riparian and vegetated buffer strips as multi-benefit habitat",
+    "source": "Stutter et al., Journal of Environmental Quality",
+    "year": 2019,
+    "variables": [
+      "soil_moisture",
+      "habitat_diversity",
+      "water_quality",
+      "species_richness"
+    ],
+    "mechanism": "Vegetated buffer strips between agricultural land and water or field edges intercept runoff, increase soil moisture and organic carbon, and add structural and topographic diversity. Targeted, well-designed buffers combine water-quality benefits with habitat provision more effectively than narrow, uniform strips.",
+    "intervention": "Targeted vegetated buffer strips along field margins and watercourses",
+    "evidence": "Stutter et al. (2019), 'Current Insights into the Effectiveness of Riparian Management, Attainment of Multiple Benefits, and Potential Technical Enhancements,' Journal of Environmental Quality, synthesises evidence that well-designed riparian buffers jointly improve soil moisture, surface topography, vegetation and habitat alongside water-quality outcomes."
+  },
+  {
+    "id": "KB-011",
+    "title": "Agroforestry shade and microclimate buffering",
+    "source": "Abebaw et al., Climate Resilience and Sustainability",
+    "year": 2025,
+    "variables": [
+      "temperature",
+      "microclimate",
+      "habitat_diversity",
+      "species_survival"
+    ],
+    "mechanism": "Tree and shrub cover in agroforestry systems shades the understory and reduces the amplitude of daily temperature swings, moderating thermal extremes relative to open monoculture. This buffering reduces heat stress on crops, livestock and associated species without requiring a change in the primary land use.",
+    "intervention": "Retaining or establishing shade-tree structure within the existing land use",
+    "evidence": "Abebaw et al. (2025), 'A Systematic Review on the Role of Agroforestry Practices in Climate Change Mitigation and Adaptation,' Climate Resilience and Sustainability, reports temperature-extreme reductions on the order of 20-30% within agroforestry systems compared with monoculture, attributed to shade and microclimate regulation."
+  }
+]
